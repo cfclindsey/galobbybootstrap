@@ -57,14 +57,9 @@
 <html <?php print $html_attributes;?><?php print $rdf_namespaces;?>>
 
 <head>
-    <meta charset="utf-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <!-- Tell the browser to be responsive to screen width -->
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="">
-    <meta name="author" content="">
-    <link rel="icon" type="image/png" sizes="16x16" href="https://new.galobby.com/development/sites/all/themes/galobbyelite/assets/images/favicon.png">
-    <title>Georgia Lobby - In Assistance to the Lobbyist</title>
+  <link rel="profile" href="<?php print $grddl_profile; ?>" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <?php print $head; ?>
 
     <?php print $styles; ?>
 
