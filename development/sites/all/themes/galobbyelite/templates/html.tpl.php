@@ -65,6 +65,9 @@
     <meta name="author" content="">
     <link rel="icon" type="image/png" sizes="16x16" href="https://new.galobby.com/development/sites/all/themes/galobbyelite/assets/images/favicon.png">
     <title>Georgia Lobby - In Assistance to the Lobbyist</title>
+
+    <?php print $styles; ?>
+
     <!-- This page CSS -->
     <!-- chartist CSS -->
     <link href="https://new.galobby.com/development/sites/all/themes/galobbyelite/assets/node_modules/morrisjs/morris.css" rel="stylesheet">
@@ -83,7 +86,7 @@
     <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
     <script src="https://oss.maxcdn.com/libs/respond.js/1.4.2/respond.min.js"></script>
 <![endif]-->
-  <?php print $styles; ?>
+
   <?php print $scripts; ?>
 </head>
 
