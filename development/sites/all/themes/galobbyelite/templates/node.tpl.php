@@ -118,58 +118,54 @@
 </article>
 
 
-
-
-
-
-
-<!-- ============================================================== -->
-<!-- Main wrapper - style you can find in pages.scss -->
-<!-- ============================================================== -->
+<?php /*
+// ============================================================== -->
+// Main wrapper - style you can find in pages.scss -->
+// ============================================================== -->
 <div id="main-wrapper">
-    <!-- ============================================================== -->
-    <!-- Topbar header - style you can find in pages.scss -->
-    <!-- ============================================================== -->
+    // ============================================================== -->
+    // Topbar header - style you can find in pages.scss -->
+    // ============================================================== -->
     <header class="topbar">
         <nav class="navbar top-navbar navbar-expand-md navbar-dark">
-            <!-- ============================================================== -->
-            <!-- Logo -->
-            <!-- ============================================================== -->
+            // ============================================================== -->
+            // Logo -->
+            // ============================================================== -->
             <div class="navbar-header">
                 <a class="navbar-brand" href="index.html">
-                    <!-- Logo text --><span>
-                     <!-- dark Logo text -->
-                     <img src="../assets/images/galobbylogo.png" alt="homepage" class="dark-logo" />
-                     <!-- Light Logo text -->
-                     <img src="../assets/images/logo-light-text.png" class="light-logo" alt="homepage" /></span> </a>
+                    // Logo text --><span>
+                     // dark Logo text -->
+                     <img src="https://new.galobby.com/development/sites/all/themes/galobbyelite/assets/images/galobbylogo.png" alt="homepage" class="dark-logo" />
+                     // Light Logo text -->
+                     <img src="https://new.galobby.com/development/sites/all/themes/galobbyelite/assets/images/logo-light-text.png" class="light-logo" alt="homepage" /></span> </a>
             </div>
-            <!-- ============================================================== -->
-            <!-- End Logo -->
-            <!-- ============================================================== -->
+            // ============================================================== -->
+            // End Logo -->
+            // ============================================================== -->
             <div class="navbar-collapse">
-                <!-- ============================================================== -->
-                <!-- toggle and nav items -->
-                <!-- ============================================================== -->
+                // ============================================================== -->
+                // toggle and nav items -->
+                // ============================================================== -->
                 <ul class="navbar-nav mr-auto">
-                    <!-- This is  -->
+                    // This is  -->
                     <li class="nav-item"> <a class="nav-link nav-toggler d-block d-md-none waves-effect waves-dark" href="javascript:void(0)"><i class="ti-menu"></i></a> </li>
                     <li class="nav-item"> <a class="nav-link sidebartoggler d-none d-lg-block d-md-block waves-effect waves-dark" href="javascript:void(0)"><i class="icon-menu"></i></a> </li>
-                    <!-- ============================================================== -->
-                    <!-- Search -->
-                    <!-- ============================================================== -->
+                    // ============================================================== -->
+                    // Search -->
+                    // ============================================================== -->
                     <li class="nav-item">
                         <form class="app-search d-none d-md-block d-lg-block">
                             <input type="text" class="form-control" placeholder="Search & enter">
                         </form>
                     </li>
                 </ul>
-                <!-- ============================================================== -->
-                <!-- User profile and search -->
-                <!-- ============================================================== -->
+                // ============================================================== -->
+                // User profile and search -->
+                // ============================================================== -->
                 <ul class="navbar-nav my-lg-0">
-                    <!-- ============================================================== -->
-                    <!-- Messages -->
-                    <!-- ============================================================== -->
+                    // ============================================================== -->
+                    // Messages -->
+                    // ============================================================== -->
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle waves-effect waves-dark" href="" id="2" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"> <i class="icon-note"></i>
                             <div class="notify"> <span class="heartbit"></span> <span class="point"></span> </div>
@@ -181,28 +177,28 @@
                                 </li>
                                 <li>
                                     <div class="message-center">
-                                        <!-- Message -->
+                                        // Message -->
                                         <a href="javascript:void(0)">
 
                                             <div class="mail-contnet">
                                                 <span class="mail-desc">Create Board Watch Notice</span>
                                               </div>
                                         </a>
-                                        <!-- Message -->
+                                        // Message -->
                                         <a href="javascript:void(0)">
 
                                             <div class="mail-contnet">
                                                 <span class="mail-desc">Create Government Watch notice</span>
                                               </div>
                                         </a>
-                                        <!-- Message -->
+                                        // Message -->
                                         <a href="javascript:void(0)">
 
                                             <div class="mail-contnet">
                                               <span class="mail-desc">Manage Subscribers and Contracts</span>
                                             </div>
                                         </a>
-                                        <!-- Message -->
+                                        // Message -->
                                         <a href="javascript:void(0)">
 
                                             <div class="mail-contnet">
@@ -215,38 +211,38 @@
                             </ul>
                         </div>
                     </li>
-                    <!-- ============================================================== -->
-                    <!-- End Messages -->
-                    <!-- ============================================================== -->
-                    <!-- ============================================================== -->
-                    <!-- mega menu -->
-                    <!-- ============================================================== -->
+                    // ============================================================== -->
+                    // End Messages -->
+                    // ============================================================== -->
+                    // ============================================================== -->
+                    // mega menu -->
+                    // ============================================================== -->
                     <li class="nav-item dropdown mega-dropdown"> <a class="nav-link dropdown-toggle waves-effect waves-dark" href="" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"><i class="ti-layout-width-default"></i></a>
                         <div class="dropdown-menu animated bounceInDown">
                             <ul class="mega-dropdown-menu row">
                                 <li class="col-lg-3 col-xlg-2 m-b-30">
                                     <h4 class="m-b-20">Photo Gallery</h4>
-                                    <!-- CAROUSEL -->
+                                    // CAROUSEL -->
                                     <div id="carouselExampleControls" class="carousel slide" data-ride="carousel">
                                         <div class="carousel-inner" role="listbox">
                                             <div class="carousel-item active">
-                                                <div class="container"> <img class="d-block img-fluid" src="../assets/images/big/img1.jpg" alt="First slide"></div>
+                                                <div class="container"> <img class="d-block img-fluid" src="https://new.galobby.com/development/sites/all/themes/galobbyelite/assets/images/big/img1.jpg" alt="First slide"></div>
                                             </div>
                                             <div class="carousel-item">
-                                                <div class="container"><img class="d-block img-fluid" src="../assets/images/big/img2.jpg" alt="Second slide"></div>
+                                                <div class="container"><img class="d-block img-fluid" src="https://new.galobby.com/development/sites/all/themes/galobbyelite/assets/images/big/img2.jpg" alt="Second slide"></div>
                                             </div>
                                             <div class="carousel-item">
-                                                <div class="container"><img class="d-block img-fluid" src="../assets/images/big/img3.jpg" alt="Third slide"></div>
+                                                <div class="container"><img class="d-block img-fluid" src="https://new.galobby.com/development/sites/all/themes/galobbyelite/assets/images/big/img3.jpg" alt="Third slide"></div>
                                             </div>
                                         </div>
                                         <a class="carousel-control-prev" href="#carouselExampleControls" role="button" data-slide="prev"> <span class="carousel-control-prev-icon" aria-hidden="true"></span> <span class="sr-only">Previous</span> </a>
                                         <a class="carousel-control-next" href="#carouselExampleControls" role="button" data-slide="next"> <span class="carousel-control-next-icon" aria-hidden="true"></span> <span class="sr-only">Next</span> </a>
                                     </div>
-                                    <!-- End CAROUSEL -->
+                                    // End CAROUSEL -->
                                 </li>
                                 <li class="col-lg-3 m-b-30">
                                     <h4 class="m-b-20">Admin Menu</h4>
-                                    <!-- Accordian -->
+                                    // Accordian -->
                                     <div class="accordion" id="accordionExample">
                                         <div class="card m-b-0">
                                             <div class="card-header bg-white p-0" id="headingOne">
@@ -300,7 +296,7 @@
                                 </li>
                                 <li class="col-lg-3  m-b-30">
                                     <h4 class="m-b-20">CONTACT US</h4>
-                                    <!-- Contact -->
+                                    // Contact -->
                                     <form>
                                         <div class="form-group">
                                             <input type="text" class="form-control" id="exampleInputname1" placeholder="Enter Name"> </div>
@@ -314,7 +310,7 @@
                                 </li>
                                 <li class="col-lg-3 col-xlg-4 m-b-30">
                                     <h4 class="m-b-20">Notices</h4>
-                                    <!-- List style -->
+                                    // List style -->
                                     <ul class="list-style-none">
                                         <li><a href="javascript:void(0)"><i class="fa fa-check text-success"></i> Create Notice</a></li>
                                         <li><a href="javascript:void(0)"><i class="fa fa-check text-success"></i> Edit Notices</a></li>
@@ -326,28 +322,28 @@
                             </ul>
                         </div>
                     </li>
-                    <!-- ============================================================== -->
-                    <!-- End mega menu -->
-                    <!-- ============================================================== -->
+                    // ============================================================== -->
+                    // End mega menu -->
+                    // ============================================================== -->
                     <li class="nav-item right-side-toggle"> <a class="nav-link  waves-effect waves-light" href="javascript:void(0)"><i class="ti-settings"></i></a></li>
                 </ul>
             </div>
         </nav>
     </header>
-    <!-- ============================================================== -->
-    <!-- End Topbar header -->
-    <!-- ============================================================== -->
-    <!-- ============================================================== -->
-    <!-- Left Sidebar - style you can find in sidebar.scss  -->
-    <!-- ============================================================== -->
+    // ============================================================== -->
+    // End Topbar header -->
+    // ============================================================== -->
+    // ============================================================== -->
+    // Left Sidebar - style you can find in sidebar.scss  -->
+    // ============================================================== -->
     <aside class="left-sidebar">
-        <!-- Sidebar scroll-->
+        // Sidebar scroll-->
         <div class="scroll-sidebar">
-            <!-- User Profile-->
+            // User Profile-->
             <div class="user-profile">
                 <div class="user-pro-body">
                     <div>
-                        <img src="../assets/images/users/normer.png" alt="user-img" class="img-circle">
+                        <img src="https://new.galobby.com/development/sites/all/themes/galobbyelite/assets/images/users/normer.png" alt="user-img" class="img-circle">
                     </div>
                     <div class="dropdown">
                         <a href="javascript:void(0)" class="dropdown-toggle u-dropdown link hide-menu" data-toggle="dropdown" role="button" aria-haspopup="true"
@@ -355,29 +351,29 @@
                             <span class="caret"></span>
                         </a>
                         <div class="dropdown-menu animated flipInY">
-                            <!-- text-->
+                            // text-->
                             <a href="javascript:void(0)" class="dropdown-item">
                                 <i class="ti-user"></i> My Profile</a>
-                            <!-- text-->
+                            // text-->
                             <a href="javascript:void(0)" class="dropdown-item">
                                 <i class="ti-wallet"></i> My Subscriptions</a>
 
-                            <!-- text-->
+                            // text-->
                             <div class="dropdown-divider"></div>
-                            <!-- text-->
+                            // text-->
                             <a href="javascript:void(0)" class="dropdown-item">
                                 <i class="ti-settings"></i> Account Settings</a>
-                            <!-- text-->
+                            // text-->
                             <div class="dropdown-divider"></div>
-                            <!-- text-->
+                            // text-->
                             <a href="pages-login.html" class="dropdown-item">
                                 <i class="fa fa-power-off"></i> Logout</a>
-                            <!-- text-->
+                            // text-->
                         </div>
                     </div>
                 </div>
             </div>
-            <!-- Sidebar navigation-->
+            // Sidebar navigation-->
             <nav class="sidebar-nav">
                 <ul id="sidebarnav">
                     <li class="nav-small-cap">--- Administrator Menu</li>
@@ -505,24 +501,24 @@
                     </li>
                 </ul>
             </nav>
-            <!-- End Sidebar navigation -->
+            // End Sidebar navigation -->
         </div>
-        <!-- End Sidebar scroll-->
+        // End Sidebar scroll-->
     </aside>
-    <!-- ============================================================== -->
-    <!-- End Left Sidebar - style you can find in sidebar.scss  -->
-    <!-- ============================================================== -->
-    <!-- ============================================================== -->
-    <!-- Page wrapper  -->
-    <!-- ============================================================== -->
+    // ============================================================== -->
+    // End Left Sidebar - style you can find in sidebar.scss  -->
+    // ============================================================== -->
+    // ============================================================== -->
+    // Page wrapper  -->
+    // ============================================================== -->
     <div class="page-wrapper">
-        <!-- ============================================================== -->
-        <!-- Container fluid  -->
-        <!-- ============================================================== -->
+        // ============================================================== -->
+        // Container fluid  -->
+        // ============================================================== -->
         <div class="container-fluid">
-            <!-- ============================================================== -->
-            <!-- Info box -->
-            <!-- ============================================================== -->
+            // ============================================================== -->
+            // Info box -->
+            // ============================================================== -->
             <div class="card-group" id="homepage-top">
                 <div class="card">
                     <div class="card-body">
@@ -542,8 +538,8 @@
                         </div>
                     </div>
                 </div>
-                <!-- Column -->
-                <!-- Column -->
+                // Column -->
+                // Column -->
                 <div class="card">
                     <div class="card-body">
                         <div class="row">
@@ -562,8 +558,8 @@
                         </div>
                     </div>
                 </div>
-                <!-- Column -->
-                <!-- Column -->
+                // Column -->
+                // Column -->
                 <div class="card">
                     <div class="card-body">
                         <div class="row">
@@ -582,8 +578,8 @@
                         </div>
                     </div>
                 </div>
-                <!-- Column -->
-                <!-- Column -->
+                // Column -->
+                // Column -->
                 <div class="card">
                     <div class="card-body">
                         <div class="row">
@@ -603,14 +599,14 @@
                     </div>
                 </div>
             </div>
-            <!-- ============================================================== -->
-            <!-- End Info box -->
-            <!-- ============================================================== -->
-            <!-- ============================================================== -->
-            <!-- Over Visitor, Our income , slaes different and  sales prediction -->
-            <!-- ============================================================== -->
+            // ============================================================== -->
+            // End Info box -->
+            // ============================================================== -->
+            // ============================================================== -->
+            // Over Visitor, Our income , slaes different and  sales prediction -->
+            // ============================================================== -->
             <div class="row">
-                <!-- Column -->
+                // Column -->
                 <div class="col-lg-8 col-md-12">
 
                     <div class="card">
@@ -658,10 +654,10 @@
                         </div>
                     </div>
                 </div>
-                <!-- Column -->
+                // Column -->
                 <div class="col-lg-4 col-md-12">
                     <div class="row">
-                        <!-- Column -->
+                        // Column -->
                         <div class="col-md-12">
                             <div class="card bg-cyan text-white">
                               <div class="card-body">
@@ -675,7 +671,7 @@
                             </div>
                         </div>
 
-                        <!-- Column -->
+                        // Column -->
                         <div class="col-md-12">
                             <div class="card bg-primary text-white">
                                 <div class="card-body">
@@ -730,17 +726,17 @@
                                 </div>
                             </div>
                         </div>
-                        <!-- Column -->
+                        // Column -->
                     </div>
                 </div>
             </div>
-            <!-- ============================================================== -->
-            <!-- Comment - table -->
-            <!-- ============================================================== -->
+            // ============================================================== -->
+            // Comment - table -->
+            // ============================================================== -->
             <div class="row">
-                <!-- ============================================================== -->
-                <!-- Comment widgets -->
-                <!-- ============================================================== -->
+                // ============================================================== -->
+                // Comment widgets -->
+                // ============================================================== -->
                 <div class="col-lg-6">
                     <div class="card">
                       <div class="card-body ">
@@ -752,7 +748,7 @@
                                   <li class="nav-item"> <a class="nav-link" data-toggle="tab" href="#profile4" role="tab"><span class="hidden-sm-up"><i class="ti-user"></i></span> <span class="hidden-xs-down">Bill Watch</span></a> </li>
                                   <li class="nav-item"> <a class="nav-link" data-toggle="tab" href="#messages4" role="tab"><span class="hidden-sm-up"><i class="ti-email"></i></span> <span class="hidden-xs-down">Code Watch</span></a> </li>
                               </ul>
-                              <!-- Tab panes -->
+                              // Tab panes -->
                               <div class="tab-content">
                                   <div class="tab-pane active" id="home4" role="tabpanel">
                                       <div class="p-20"> List of Committees</div>
@@ -765,9 +761,9 @@
                           </div>
                     </div>
                 </div>
-                <!-- ============================================================== -->
-                <!-- Table -->
-                <!-- ============================================================== -->
+                // ============================================================== -->
+                // Table -->
+                // ============================================================== -->
                 <div class="col-lg-6">
                     <div class="card">
                         <div class="card-body bg-light">
@@ -845,14 +841,14 @@
                     </div>
                 </div>
             </div>
-            <!-- ============================================================== -->
-            <!-- End Comment - chats -->
-            <!-- ============================================================== -->
-            <!-- ============================================================== -->
-            <!-- Over Visitor, Our income , slaes different and  sales prediction -->
-            <!-- ============================================================== -->
+            // ============================================================== -->
+            // End Comment - chats -->
+            // ============================================================== -->
+            // ============================================================== -->
+            // Over Visitor, Our income , slaes different and  sales prediction -->
+            // ============================================================== -->
             <div class="row">
-                <!-- Column -->
+                // Column -->
                 <div class="col-lg-8 col-md-12">
                     <div class="card">
                         <div class="card-body">
@@ -1510,10 +1506,10 @@
                         </div>
                     </div>
                 </div>
-                <!-- Column -->
+                // Column -->
                 <div class="col-lg-4 col-md-12">
                     <div class="row">
-                        <!-- Column -->
+                        // Column -->
                         <div class="col-md-12">
                             <div class="card">
                                 <div class="card-body">
@@ -1530,7 +1526,7 @@
                                 </div>
                             </div>
                         </div>
-                        <!-- Column -->
+                        // Column -->
                         <div class="col-md-12">
                             <div class="card bg-purple text-white">
                                 <div class="card-body">
@@ -1547,16 +1543,16 @@
                                 </div>
                             </div>
                         </div>
-                        <!-- Column -->
+                        // Column -->
                     </div>
                 </div>
             </div>
-            <!-- ============================================================== -->
-            <!-- End Page Content -->
-            <!-- ============================================================== -->
-            <!-- ============================================================== -->
-            <!-- Todo, chat, notification -->
-            <!-- ============================================================== -->
+            // ============================================================== -->
+            // End Page Content -->
+            // ============================================================== -->
+            // ============================================================== -->
+            // Todo, chat, notification -->
+            // ============================================================== -->
             <div class="row">
                 <div class="col-md-12">
                     <div class="card">
@@ -1586,28 +1582,29 @@
                     </div>
                 </div>
             </div>
-            <!-- ============================================================== -->
-            <!-- End Page Content -->
-            <!-- ============================================================== -->
+            // ============================================================== -->
+            // End Page Content -->
+            // ============================================================== -->
 
         </div>
-        <!-- ============================================================== -->
-        <!-- End Container fluid  -->
-        <!-- ============================================================== -->
+        // ============================================================== -->
+        // End Container fluid  -->
+        // ============================================================== -->
     </div>
-    <!-- ============================================================== -->
-    <!-- End Page wrapper  -->
-    <!-- ============================================================== -->
-    <!-- ============================================================== -->
-    <!-- footer -->
-    <!-- ============================================================== -->
+    // ============================================================== -->
+    // End Page wrapper  -->
+    // ============================================================== -->
+    // ============================================================== -->
+    // footer -->
+    // ============================================================== -->
     <footer class="footer">
         © 2019 Georgia Lobby by <a href="https://countryfriedcreative.com"> Country Fried Creative</a>
     </footer>
-    <!-- ============================================================== -->
-    <!-- End footer -->
-    <!-- ============================================================== -->
+    // ============================================================== -->
+    // End footer -->
+    // ============================================================== -->
 </div>
-<!-- ============================================================== -->
-<!-- End Wrapper -->
-<!-- ============================================================== -->
+// ============================================================== -->
+// End Wrapper -->
+// ============================================================== -->
+*/ ?>
