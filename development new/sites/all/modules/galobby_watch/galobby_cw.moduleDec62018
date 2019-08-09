@@ -1,0 +1,1422 @@
+<?php
+
+/**
+ *  This module will handle creation of new UX for Client Watch Reporting including creation of landing pages, tables, new functionality,
+ *	and PDF exports.
+ *	New module as of May 2017.
+ * 	
+ *
+ *  IMPORTANT NOTE!!! There are "duplicate" copies of code that are very similar to create PDFs.  If you make changes to code, 
+ * 	make sure to get all copies of code via find/replace!!!
+ */
+
+set_include_path(get_include_path() . PATH_SEPARATOR . "sites/all/libraries/dompdf");
+set_include_path(get_include_path() . PATH_SEPARATOR . "sites/all/libraries/PHPMailer");
+
+require_once 'dompdf_config.inc.php';
+require_once 'sites/all/libraries/PHPMailer/PHPMailerAutoload.php';
+
+//Create menu items and register with system
+//Changed Sept 13, 2018 to allow for mass deletion of bills
+function galobby_cw_menu() {
+  $items = array();
+  /* Obsolete as of Sept 2018
+	$items['cw-landing'] = array( //this creates a URL that will call this page at "cw-landing"
+    'title' => 'Client Watch Reports', //page title
+    'description' => 'Landing page for Client Watch Reports',
+    'page callback' => 'galobby_cw_bill_table_page',     
+  	'access arguments' => array('access content'),
+    'access callback' => TRUE
+  );
+	
+	//change main page from pure HTML to a form
+	/*$items['cw-landing'] = array( //this creates a URL that will call this page at "cw-landing"
+    'title' => 'Client Watch Reports', //page title
+    'description' => 'Landing page for Client Watch Reports',
+    'page callback' => 'drupal_get_form',
+	'page arguments' => array('galobby_cw_bill_table_form', 1),    
+  	'access arguments' => array('access content'),
+    'access callback' => TRUE
+  );*/
+
+	$items['cw-clients/%'] = array( //this creates a URL that will call this form at "cw-clients"
+    'title' => 'Client Watch Reports by Client/Issue', //page title
+    'description' => 'Client Watch Reports by Client/Issue',
+	'page callback' => 'drupal_get_form',
+	'page arguments' => array('galobby_cw_ind_client_table_form', 1),   
+  	'access arguments' => array('access content'),
+    'access callback' => TRUE
+  );
+
+	$items['cw-clients/%/bill-sort'] = array( //this creates a URL that will call this form at "cw-clients"
+    'title' => 'Client Watch Reports by Client/Issue', //page title
+    'description' => 'Client Watch Reports by Client/Issue',
+	'page callback' => 'drupal_get_form',
+	'page arguments' => array('galobby_cw_ind_client_table_form_sorted', 1),   
+  	'access arguments' => array('access content'),
+    'access callback' => TRUE
+  );
+
+	$items['cw-clients-20172018/%'] = array( //this creates a URL that will call this form at "cw-clients-20172018"
+    'title' => 'Legislative Session 2017-2018 Client Watch Reports by Client/Issue', //page title
+    'description' => 'Client Watch Reports by Client/Issue for 2017-2018',
+	'page callback' => 'drupal_get_form',
+	'page arguments' => array('galobby_cw_ind_client_table_form_20172018', 1),   
+  	'access arguments' => array('access content'),
+    'access callback' => TRUE
+  );
+
+	$items['cw-clients-20172018/%/bill-sort'] = array( //this creates a URL that will call this form at "cw-clients-20172018/%/bill-sort"
+    'title' => 'Legislative Session 2017-2018 Client Watch Reports by Client/Issue', //page title
+    'description' => 'Client Watch Reports by Client/Issue 2017-2018',
+	'page callback' => 'drupal_get_form',
+	'page arguments' => array('galobby_cw_ind_client_table_form_sorted_20172018', 1),   
+  	'access arguments' => array('access content'),
+    'access callback' => TRUE
+  );
+
+
+	$items['cw-add-bill/%'] = array( //this creates a URL that will call this form at "cw-add-bill"
+    'title' => 'Add Bill to Client/Issue', //page title
+    'description' => 'Add Bill to by Client/Issue',
+	'page callback' => 'drupal_get_form',
+	'page arguments' => array('galobby_cw_add_bill_form', 1),   
+  	'access arguments' => array('access content'),
+    'access callback' => TRUE
+  );
+
+	$items['cw-send-email/%'] = array( //this creates a URL that will call this form at "cw-send-email"
+    'title' => 'Send PDF by Email', //page title
+    'description' => 'Send PDF by Email',
+	'page callback' => 'drupal_get_form',
+	'page arguments' => array('galobby_cw_send_pdf_form', 1),   
+  	'access arguments' => array('access content'),
+    'access callback' => TRUE
+  );
+
+	$items['cw-team-reporting/%/%'] = array( //this creates a URL that will call this form at "client-watch-team-reporting/term/uid"
+    'title' => 'Client Watch Team Collaboration Reports', //page title
+    'description' => 'Client Watch Team Collaboration',
+	'page callback' => 'drupal_get_form', 
+	'page arguments' => array('galobby_cw_team_ind_form', 1, 2),    
+  	'access arguments' => array('access content'),
+    'access callback' => TRUE
+  );
+
+	$items['cw-team-reporting-20172018/%/%'] = array( //this creates a URL that will call this form at "client-watch-team-reporting-20172018/term/uid"
+    'title' => 'Client Watch Team Collaboration Reports for 2017-2018', //page title
+    'description' => 'Client Watch Team Collaboration',
+	'page callback' => 'drupal_get_form', 
+	'page arguments' => array('galobby_cw_team_ind_form_20172018', 1, 2),    
+  	'access arguments' => array('access content'),
+    'access callback' => TRUE
+  );
+ return $items;
+}
+
+//create initial individual report by client/issue page for a user... the main page is created in galobby_watch.module and works as expected
+function galobby_cw_team_ind_form($form, &$form_state, $citerm, $teamuid) {
+	global $user;
+	$usobj = user_load($user->uid);
+	$contrnid = $usobj->field_company['und'][0]['target_id'];
+	$contract = node_load($contrnid);
+	//set up so that users without CW Team service see error message
+	$cw_team = FALSE;
+	foreach($contract->field_services_subscribed[$contract->language] as $serv) {
+		if ($serv['value'] == 'cwteam') {
+			$cw_team = TRUE;
+		}
+	} 
+	if ($cw_team == FALSE) {
+		$html = 'You are not subscribed to Client Watch Team services.  Please contact Georgia Lobby if you feel this is an error or to upgrade your contract to include this valuable service!';
+		
+		$form['top_menu'] = array(
+  			'#markup' => $html,
+		);
+	}
+	//else, we continue to process page to show listing of Client Watch bills and reports from all subscribers on the contract
+	else {
+		$form = galobby_cw_ind_client_table_form($form, $form_state, $argument, $argument2);
+	}
+	return $form;	
+}
+
+//create initial individual report by client/issue page for a user... the main page is created in galobby_watch.module and works as expected
+function galobby_cw_team_ind_form_20172018($form, &$form_state, $citerm, $teamuid) {
+	global $user;
+	$usobj = user_load($user->uid);
+	$contrnid = $usobj->field_company['und'][0]['target_id'];
+	$contract = node_load($contrnid);
+	//set up so that users without CW Team service see error message
+	$cw_team = FALSE;
+	foreach($contract->field_services_subscribed[$contract->language] as $serv) {
+		if ($serv['value'] == 'cwteam') {
+			$cw_team = TRUE;
+		}
+	} 
+	if ($cw_team == FALSE) {
+		$html = 'You are not subscribed to Client Watch Team services.  Please contact Georgia Lobby if you feel this is an error or to upgrade your contract to include this valuable service!';
+		
+		$form['top_menu'] = array(
+  			'#markup' => $html,
+		);
+	}
+	//else, we continue to process page to show listing of Client Watch bills and reports from all subscribers on the contract
+	else {
+		$form = galobby_cw_ind_client_table_form_20172018($form, $form_state, $argument, $argument2);
+	}
+	return $form;	
+}
+
+//create CW landing page 
+/* Obsolete as of Sept 2018
+function galobby_cw_bill_table_page() {
+	global $user;
+	$usobj = user_load($user->uid);
+	$userid = $user->uid;
+	//make sure user has permission to see Client Watch
+	if (user_has_role(10, $usobj) || user_has_role(3, $usobj) || user_has_role(13, $usobj)) {
+		//begin to build HTML for page starting with menu links and static content at top of page
+		$menuhtml = '<div class="block block-menu contextual-links-region" id="block-menu-menu-left-menu-client-watch-la" style="display:none;">
+<h2>Client Watch Quick Menu</h2></div>
+<div class="content">
+<ul class="menu">
+	<li class="first leaf"><a href="/development/node/add/client-watch" title="">Quick Add Bill for Client Watch</a></li>
+	<li class="leaf"><a href="/development/admin/structure/taxonomy/clients/add" title="">Add New Client or Issue</a></li>
+	<li class="last leaf"><a href="/development/cw-team-edit">Client Watch Team Collaboration</a></li>
+	<li class="last leaf"><a href="/development/client-watch-clients-issues/' . $userid . '" title="">View/Edit Clients and/or Issues</a></li>
+	<li class="last leaf"><a href="/development/node/redirect" title="">Return to Subscriptions</a></li>
+	<li class="last leaf"><a href="/development/user/' . $userid . '/edit" title="">Edit your Profile</a></li>
+	<li class="last leaf"><a href="/development/user/logout" title="">Logout</a></li>
+</ul>
+</div></div></div>';
+		
+		//bill table html
+		$billhtml = '<div id="cw-all-bills" class="view-id-client_watch_reporting"><h3>All Client Watch Bills</h3><table id="cw-bill-table" class="tablesorter"><thead><tr><th>Importance</th><th>Bill</th><th> Description</th><th>Summary</th><th>Sponsor</th><th>Committees</th><th>Status</th><th>Analysis</th><th>Client/Issue</th><th>Edit</th><th>Delete</th></tr></thead><tbody>';
+		
+		$userTerms = array();
+		//let's load user's client watch bills...
+		$query = new EntityFieldQuery();
+		$entities = $query->entityCondition('entity_type', 'node')
+					->propertyCondition('type', 'client_watch')
+					->propertyCondition('uid', $userid)
+					->execute();
+		if (!empty($entities['node'])) {
+  			$cwNodes = array_keys($entities['node']);
+			$cwBills = entity_load('node', $cwNodes);
+			foreach ($cwBills as $cw) {
+				//get and assign all fields to a variable
+				$title = $cw->title;
+				preg_match('/(\d+)/', $title, $billNum3);
+                $billtype3 = substr($title, 0, 2);
+    			$billnumber3 = $billNum3[0];
+				$baseurl3 = 'http://www.legis.ga.gov/legislation/en-US/Display/20172018/';
+    			$url3 = $baseurl3 . $billtype3 . '/' . $billnumber3;
+				$title_sort = $billtype3 . ' ' . $billnumber3;
+				$importance = $cw->field_importance[$cw->language][0]['value'];
+				$descrip = $cw->field_billdescrip[$cw->language][0]['value'];
+				$summary = $cw->field_descrip[$cw->language][0]['value'];
+				$sponsor = $cw->field_sponsor[$cw->language][0]['value'];
+				$committee = $cw->field_committee[$cw->language][0]['safe_value'];
+				$status = $cw->field_status[$cw->language][0]['value'];
+				$analysis = $cw->body[$cw->language][0]['safe_value'];
+				if ($analysis == NULL) {
+					$analysis = 'No analysis available.';
+				}
+				$cterms = '';
+				$c = 0;
+				$terms = array();
+				//get terms to prepare for report links
+				if ($cw->field_clients[$cw->language] != NULL) {
+				foreach ($cw->field_clients[$cw->language] as $t) {
+					$userTerms[] = $t['tid'];
+					$term = entity_load_single('taxonomy_term', $t['tid']);
+					$terms[] = $term->name;
+					$c++;
+				}}
+				foreach ($terms as $ter) {
+					$cterms .= $ter;
+					if ($c - 1 > 0) {
+						$cterms .= ', ';
+					}
+					$c--;
+				}
+				$c = 0;
+				//build bill HTML lines
+				$billhtml .= '<tr><td class="views-field-field-importance">' . $importance . '</td><td><a target="_blank" href="' . $url3 . '">' . $cw->title . '</a></td><td>' . $descrip . '</td><td class="views-field-field-descrip">' . $summary . '</td><td>' . $sponsor . '</td><td>' . $committee . '</td><td>' . strip_tags($status) . '</td><td>' . $analysis . '</td><td>' . $cterms . '</td><td><a href="/development/node/' . $cw->nid . '/edit">Edit</a></td><td><a href="/development/node/' . $cw->nid . '/delete">Delete</a></td></tr>';
+			}
+		}
+		//remove dups in terms array
+		$userTerms = array_unique($userTerms);
+		
+		//start listings html
+		$termslistinghtml = '<div id="reports-by-term"><h3>Client Watch Reports by Client/Issue</h3><ul>';
+		//changed Dec 2017 to include all client/issues and not just ones with associated bills
+		//start by loading all terms associated with user in the private taxon's user_term table
+		$noclients = TRUE;
+		$clientshtml = NULL;
+		$ownedterms = db_query('SELECT tid FROM user_term WHERE uid = :uid', array(':uid' => $userid));
+		foreach($ownedterms as $owned) {
+			foreach($owned as $oterm) {
+				$noclients = FALSE;
+				$query = new EntityFieldQuery();
+				$entities = $query->entityCondition('entity_type', 'taxonomy_term')
+					->entityCondition('bundle', array('clients'))
+					->propertyCondition('tid', $oterm)
+					->execute();
+				if (!empty($entities['taxonomy_term'])) {
+  					$cwTerms = array_keys($entities['taxonomy_term']);
+					$cwClients = entity_load('taxonomy_term', $cwTerms);
+					
+					foreach ($cwClients as $cli) {
+						//modified Aug 2018 by LT to sort alphabetically
+						$forsort[] = $cli;
+					}
+				}
+			}
+		}
+		
+		if($noclients) {
+			$clientshtml = '<span>You currently do not have any clients or issues.  You can <a href="https://galobby.com/admin/structure/taxonomy/clients/add">add a client or issue here</a> or you can <a href="https://galobby.com/node/add/client-watch">add a Client Watch bill here</a>.</span>';
+			$billhtml = '<table><tbody>';
+		}
+		else {
+			usort($forsort, "comparray2");
+			foreach($forsort as $sorted) {
+				$termslistinghtml .=  '<li><a href="/development/cw-clients/' . $sorted->tid .'">' . $sorted->name . '</a></li>';
+			}
+		}
+		unset($userTerms);
+		unset($terms);
+		
+		//concat html into singular html item to return.
+		//$html = $menuhtml . $termslistinghtml . $clientshtml . '</ul> </div>' . $billhtml . '</tbody></table></div>';
+		$html = $menuhtml . $termslistinghtml . $clientshtml . '</ul> </div>';
+		$html .= views_embed_view('block_cliwatch_bills', 'default');
+	}
+	else {
+		//no permissions message
+		$html = 'You are not subscribed to Client Watch services.  Please contact Georgia Lobby if you feel this is an error or to upgrade your contract to include this valuable service!';
+		
+		return $html;
+	}
+	return $html;
+}
+
+//Added/edited Sept 13, 2018 by LT
+//Changes the pure HTML table for all CW listing to a form to allow for mass deletion of cw nodes
+function galobby_cw_bill_table_form($form, &$form_state) {
+	global $user;
+	$usobj = user_load($user->uid);
+	$userid = $user->uid;
+	$billhtml = '';
+	$n = 0;
+	$selected = 'no';
+	//make sure user has permission to see Client Watch
+	if (user_has_role(10, $usobj) || user_has_role(3, $usobj) || user_has_role(13, $usobj)) {
+		$path = current_path(); // path to return to if "cancel" is pressed
+  		// create a form with a "confirm" step.
+  		// Initial form first:
+ 		if( !isset( $form_state['storage']['confirm'] ) ) {
+		//initial form/table pages
+		//begin to build HTML for page starting with menu links and static content at top of page
+		$menuhtml = '<div class="block block-menu contextual-links-region" id="block-menu-menu-left-menu-client-watch-la" style="display:none;">
+<h2>Client Watch Quick Menu</h2></div>
+<div class="content">
+<ul class="menu">
+	<li class="first leaf"><a href="/development/node/add/client-watch" title="">Quick Add Bill for Client Watch</a></li>
+	<li class="leaf"><a href="/development/admin/structure/taxonomy/clients/add" title="">Add New Client or Issue</a></li>
+	<li class="last leaf"><a href="/development/cw-team-edit">Client Watch Team Collaboration</a></li>
+	<li class="last leaf"><a href="/development/client-watch-clients-issues/' . $userid . '" title="">View/Edit Clients and/or Issues</a></li>
+	<li class="last leaf"><a href="/development/node/redirect" title="">Return to Subscriptions</a></li>
+	<li class="last leaf"><a href="/development/user/' . $userid . '/edit" title="">Edit your Profile</a></li>
+	<li class="last leaf"><a href="/development/user/logout" title="">Logout</a></li>
+</ul>
+</div></div></div>';
+		
+		//bill table html
+		$billhtml = '<div id="cw-all-bills" class="view-id-client_watch_reporting"><h3>All Client Watch Bills</h3><table id="cw-bill-table" class="tablesorter"><thead><tr><th class="tablesorter-noSort select-all">Select</th><th>Importance</th><th>Bill</th><th> Description</th><th>Summary</th><th>Sponsor</th><th>Committees</th><th>Status</th><th>Analysis</th><th>Client/Issue</th><th>Edit</th></tr></thead><tbody>';
+		
+		$formtophtml = $menuhtml . $billhtml;
+		
+		$form['top_menu'] = array(
+  			'#markup' => $formtophtml,
+		);
+		
+		$userTerms = array();
+		//let's load user's client watch bills...
+		$query = new EntityFieldQuery();
+		$entities = $query->entityCondition('entity_type', 'node')
+					->propertyCondition('type', 'client_watch')
+					->propertyCondition('uid', $userid)
+					->execute();
+		if (!empty($entities['node'])) {
+  			$cwNodes = array_keys($entities['node']);
+			$cwBills = entity_load('node', $cwNodes);
+			foreach ($cwBills as $cw) {
+				$cterms = '';
+				$c = 0;
+				$terms = array();
+				//get terms to prepare for report links
+				if ($cw->field_clients[$cw->language] != NULL) {
+				foreach ($cw->field_clients[$cw->language] as $t) {
+					$userTerms[] = $t['tid'];
+					$term = entity_load_single('taxonomy_term', $t['tid']);
+					$terms[] = $term->name;
+					$c++;
+				}}
+				foreach ($terms as $ter) {
+					$cterms .= $ter;
+					if ($c - 1 > 0) {
+						$cterms .= ', ';
+					}
+					$c--;
+				}
+				$c = 0;
+				//get and assign all fields to a variable
+				$title = $cw->title;
+				preg_match('/(\d+)/', $title, $billNum3);
+                $billtype3 = substr($title, 0, 2);
+    			$billnumber3 = $billNum3[0];
+				$baseurl3 = 'http://www.legis.ga.gov/legislation/en-US/Display/20172018/';
+    			$url3 = $baseurl3 . $billtype3 . '/' . $billnumber3;
+				$title_sort = $billtype3 . ' ' . $billnumber3;
+				$importance = $cw->field_importance[$cw->language][0]['value'];
+				$descrip = $cw->field_billdescrip[$cw->language][0]['value'];
+				$summary = $cw->field_descrip[$cw->language][0]['value'];
+				$sponsor = $cw->field_sponsor[$cw->language][0]['value'];
+				$committee = $cw->field_committee[$cw->language][0]['safe_value'];
+				$status = $cw->field_status[$cw->language][0]['value'];
+				$analysis = $cw->body[$cw->language][0]['safe_value'];
+				if ($analysis == NULL) {
+					$analysis = 'No analysis available.';
+				}
+				
+				//build bill HTML lines
+				$form['cw_select_' . $n] = array(
+					'#prefix' => '<tr><td>',
+	 				'#type' => 'checkbox',
+  						'#options' => array(TRUE, FALSE),
+						'#attributes' => array($cw->nid, $selected),
+  						'#required' => FALSE, 
+						'#suffix' => '</td><td class="views-field-field-importance">' . $importance . '</td><td><a target="_blank" href="' . $url3 . '">' . $cw->title . '</a></td><td>' . $descrip . '</td><td class="views-field-field-descrip">' . $summary . '</td><td>' . $sponsor . '</td><td>' . $committee . '</td><td>' . strip_tags($status) . '</td><td>' . $analysis . '</td><td>' . $cterms . '</td><td><a href="/development/node/' . $cw->nid . '/edit">Edit</a></td></tr>',
+				);
+				
+				//increment to count rows results
+				$n++;
+			}
+			$form['count'] = array(
+				'#type' => 'text',
+				'#default_value' => $n,
+			);
+		}
+		//remove dups in terms array
+		$userTerms = array_unique($userTerms);
+		
+		//start listings html
+		$termslistinghtml = '<div id="reports-by-term"><h3>Client Watch Reports by Client/Issue</h3><ul>';
+		
+		//changed Dec 2017 to include all client/issues and not just ones with associated bills
+		//start by loading all terms associated with user in the private taxon's user_term table
+		$noclients = TRUE;
+		$clientshtml = NULL;
+		$ownedterms = db_query('SELECT tid FROM user_term WHERE uid = :uid', array(':uid' => $userid));
+		foreach($ownedterms as $owned) {
+			foreach($owned as $oterm) {
+				$noclients = FALSE;
+				$query = new EntityFieldQuery();
+				$entities = $query->entityCondition('entity_type', 'taxonomy_term')
+					->entityCondition('bundle', array('clients'))
+					->propertyCondition('tid', $oterm)
+					->execute();
+				if (!empty($entities['taxonomy_term'])) {
+  					$cwTerms = array_keys($entities['taxonomy_term']);
+					$cwClients = entity_load('taxonomy_term', $cwTerms);
+					
+					foreach ($cwClients as $cli) {
+						//modified Aug 2018 by LT to sort alphabetically
+						$forsort[] = $cli;
+					}
+				}
+			}
+		}
+		
+		if($noclients) {
+			$clientshtml = '<span>You currently do not have any clients or issues.  You can <a href="https://galobby.com/admin/structure/taxonomy/clients/add">add a client or issue here</a> or you can <a href="https://galobby.com/node/add/client-watch">add a Client Watch bill here</a>.</span>';
+			$billhtml = '<table><tbody>';
+		}
+		else {
+			usort($forsort, "comparray2");
+			foreach($forsort as $sorted) {
+				$termslistinghtml .=  '<li><a href="/development/cw-clients/' . $sorted->tid .'">' . $sorted->name . '</a></li>';
+			}
+			$termslistinghtml .= '</ul></div>';
+		}
+		unset($userTerms);
+		unset($terms);
+		//concat html into singular html item to return.
+		$html = $menuhtml . $termslistinghtml . $billhtml . '</div>' . $clientshtml . '</ul> </div>';
+		
+		$form['top_menu'] = array(
+  			'#markup' => $html,
+		);
+		
+		$form['post_table'] = array(
+  			'#markup' => '</tbody></table></div>',
+		);
+	
+		$form['delete_button'] = array(
+   			'#type' => 'submit',
+   			'#value' => t('Delete Bills'),
+  		);
+
+		return $form;
+	}
+	else {
+		//confirmation form page
+		$content = '<div> The following Client Watch bills are going to be deleted from your report if you continue: <ul>';
+		foreach($form_state['storage']['nids_delete'] as $bill) {
+			$loaded = node_load($bill);
+			$content .= '<li>';
+			$content .= $loaded->field_billdescrip['und'][0]['value'];
+			$content .= '</li>';
+		}
+    	$content .= '</ul></div><h1>WARNING: You can not undo this action.</h1>';
+
+    	$form['intro'] = array('#markup' => $content);
+		
+		return confirm_form($form, $question="Are you certain you wish to delete these Client Watch bills?", $path, $description = "", $yes = "Delete");
+	}
+	
+	return $form;
+	}
+	else {
+		//no permissions message
+		$html = 'You are not subscribed to Client Watch services.  Please contact Georgia Lobby if you feel this is an error or to upgrade your contract to include this valuable service!';
+		
+		$form['top_menu'] = array(
+  			'#markup' => $html,
+		);
+		
+		return $form;
+	}
+}
+
+//mass delete form submit handler; handles both initial form submission and confirmation form submission
+function galobby_cw_bill_table_form_submit($form, &$form_state) {
+	dpm($form);
+	dpm($form_state);
+	
+	$i = 0;
+	$nids_count = 0;
+	$n = $form['count']['#default_value'];
+		
+	if( !isset($form_state['storage']['confirm'] )) {
+		//form isn't confirmed yet... set up confirmation form and add nids to form storage
+		while ($i < $n) {
+			if ($form['cw_select_' . $i]['#checked'] == TRUE) {
+				$nids[] = $form['cw_select_' . $i]['#attributes'][0];
+			}
+			$i++;
+		}
+		
+		foreach($nids as $one) {
+			$nids_count++;
+		}
+		
+		$form_state['storage']['nids_delete'] = $nids;
+		$form_state['storage']['nid_count'] = $nids_count;
+		$form_state['storage']['confirm'] = TRUE; // this will cause the form to be rebuilt, entering the confirm part of the form
+      	$form_state['rebuild'] = TRUE;
+	}
+	else {
+		foreach($form_state['storage']['nids_delete'] as $deletebill) {
+			//dpm('nid to delete');
+			//dpm($deletebill);
+			node_delete($deletebill);
+		}
+		dpm('Selected bills have been deleted from your Client Watch report.');
+	}
+}*/
+
+
+//create CW individual term page
+function galobby_cw_ind_client_table_form($form, &$form_state, $argument, $argument2) {
+	//Importance sort:
+	$diff = "importance";
+	$year = "20192020";
+	//$form = galobby_cw_page_layout($form, $form_state, $argument, $diff, $argument2);
+	$form = galobby_cw_page_layout($form, $form_state, $argument, $diff, $year);
+	return $form;
+}
+
+//create CW individual term page sorted by bill title
+function galobby_cw_ind_client_table_form_sorted($form, &$form_state, $argument) {
+	//Bill sort:
+	$diff = "bill";
+	$year = "20192020";
+	//$form = galobby_cw_page_layout($form, $form_state, $argument, $diff);
+	$form = galobby_cw_page_layout($form, $form_state, $argument, $diff, $year);
+	return $form;
+}
+
+//create CW individual term page 2017-2018
+function galobby_cw_ind_client_table_form_20172018($form, &$form_state, $argument, $argument2) {
+	//Importance sort:
+	$diff = "importance";
+	$year = "20172018";
+	//$form = galobby_cw_page_layout($form, $form_state, $argument, $diff, $argument2);
+	$form = galobby_cw_page_layout($form, $form_state, $argument, $diff, $year);
+	return $form;
+}
+
+//create CW individual term page sorted by bill title 2017-2018
+function galobby_cw_ind_client_table_form_sorted_20172018($form, &$form_state, $argument) {
+	//Bill sort:
+	$diff = "bill";
+	$year = "20172018";
+	//$form = galobby_cw_page_layout($form, $form_state, $argument, $diff);
+	$form = galobby_cw_page_layout($form, $form_state, $argument, $diff, $year);
+	return $form;
+}
+
+
+//functions control the user selected report outcomes on submit from the importance and bill sorted forms
+function galobby_cw_ind_client_table_form_submit($form, &$form_state) {
+	//dpm($form_state);
+	//dpm($form);
+	$confirmed = NULL;
+	
+	galobby_cw_submit_multi($form, $form_state, $confirmed);
+}
+
+function galobby_cw_ind_client_table_form_sorted_submit($form, &$form_state) {
+	//dpm($form_state);
+	//dpm($form);
+	$confirmed = NULL;
+	
+	galobby_cw_submit_multi($form, $form_state, $confirmed);
+}
+
+function galobby_cw_team_ind_form_submit($form, &$form_state) {
+	//dpm($form_state);
+	//dpm($form);
+	$confirmed = NULL;
+	
+	galobby_cw_submit_multi($form, $form_state, $confirmed);
+}
+
+
+function galobby_cw_ind_client_table_form_20172018_submit($form, &$form_state) {
+	$confirmed = NULL;
+	
+	galobby_cw_submit_multi($form, $form_state, $confirmed);
+}
+
+function galobby_cw_ind_client_table_form_sorted_20172018_submit($form, &$form_state) {
+	$confirmed = NULL;
+	
+	galobby_cw_submit_multi($form, $form_state, $confirmed);
+}
+
+function galobby_cw_team_ind_form_20172018_submit($form, &$form_state) {
+	$confirmed = NULL;
+	
+	galobby_cw_submit_multi($form, $form_state, $confirmed);
+}
+
+
+
+//quick add client watch bill with specific client/issue term
+function galobby_cw_add_bill_form($form, &$form_state, $argument) {
+	global $user;
+	$usobj = user_load($user->uid);
+	$userid = $user->uid;
+	$client = $form_state['build_info']['args'][0];
+	
+	//make sure user has permission to see Client Watch
+	if (user_has_role(10, $usobj) || user_has_role(3, $usobj) || user_has_role(13, $usobj)) {
+		$cl_term = taxonomy_term_load($client);
+		$form['description'] = array(
+  			'#markup' => '<p>Quickly add a bill to Client Watch Reporting for ' . $cl_term->name . '.</p>'
+		);
+		
+		$form['session_yr_options'] = array(
+  			'#type' => 'value',
+  			'#value' => array('20172018' => t('2017-2018'),
+                    '20192020' => t('2019-2020')
+		));
+		
+		$form['session_yr'] = array(
+  			'#title' => t('Legislative session'),
+  			'#type' => 'select',
+  			'#description' => "Select the session year of the bill.",
+  			'#options' => $form['session_yr_options']['#value'],
+  			'#required' => TRUE, //make this field required 
+		);
+ 
+		$form['type_options'] = array(
+  			'#type' => 'value',
+  			'#value' => array('HB' => t('HB'),
+                    'HR' => t('HR'),
+                    'SB' => t('SB'),
+                    'SR' => t('SR')
+		));
+
+		$form['type'] = array(
+  			'#title' => t('Bill Type'),
+  			'#type' => 'select',
+  			'#description' => "Select the bill type.",
+  			'#options' => $form['type_options']['#value'],
+  			'#required' => TRUE, //make this field required 
+		);  
+  
+ 		$form['billstartnum'] = array(
+    		'#type' => 'textfield', //you can find a list of available types in the form api
+    		'#title' => 'Enter the bill number.',
+    		'#size' => 4,
+    		'#maxlength' => 4,
+    		'#required' => TRUE, //make this field required 
+  		);
+  
+		$form['analysis'] = array(
+    		'#type' => 'textarea',
+    		'#title' => 'Add your analysis for the bill.',
+    		'#cols' => 64,
+    		'#rows' => 10,
+			'#resizable' => TRUE,
+    		'#required' => FALSE, 
+  		);
+
+		$form['imp_options'] = array(
+  			'#type' => 'value',
+  			'#value' => array(
+					'1-Highest' => t('1-Highest'),
+                    '2-High' => t('2-High'),
+                    '3-Medium' => t('3-Medium'),
+                    '4-Low' => t('4-Low'),
+					'5-Lowest' => t('5-Lowest'),
+		));
+
+		$form['imp'] = array(
+  			'#title' => t('Importance'),
+  			'#type' => 'select',
+  			'#description' => "Select importance level of bill.",
+  			'#options' => $form['imp_options']['#value'],
+  			'#required' => FALSE, 
+		);
+
+  		$form['submit_button'] = array(
+    		'#type' => 'submit',
+    		'#value' => t('Create Bill'),
+  		);
+
+		return $form;
+	}
+	
+	else {
+		//no permissions message
+		$html = 'You are not subscribed to Client Watch services.  Please contact Georgia Lobby if you feel this is an error or to upgrade your contract to include this valuable service!';
+		
+		$form['top_menu'] = array(
+  			'#markup' => $html,
+		);
+	}
+	return $form;
+}
+
+function galobby_cw_add_bill_form_submit($form, &$form_state) {
+	//create CW bill programmatically
+	global $user;
+	//dpm($form_state);
+	$billtype = $form_state['values']['type'];
+	$billnum = $form_state['values']['billstartnum'];
+	$billtitle = $billtype . $billnum;
+	if ($form_state['values']['session_yr'] == '20172018') {
+		$billyr = 'bill_20172018';
+		$cwtype = 'client_watch_20172018';
+		$pathpre = '/cw-clients-20172018/';
+		
+	}
+	else {
+		$billyr = 'bill_testing';
+		$cwtype = 'client_watch';
+		$pathpre = '/cw-clients/';
+	}
+	//load bill and copy contents
+	$queryCW = new EntityFieldQuery();
+	$entitiesCW = $queryCW->entityCondition('entity_type', 'node')
+				->propertyCondition('type', $billyr)
+				->propertyCondition('title', $billtitle)
+				->execute();
+			if (!empty($entitiesCW['node'])) {
+				foreach($entitiesCW['node'] as $ent) {
+					$cl_term = taxonomy_term_load($form_state['build_info']['args'][0]);
+					
+				$bill = node_load($ent->nid);
+				$cwbill = new stdClass();
+				$cwbill->type = $cwtype;
+				$cwbill->title = $billtype . $billnum;
+				$cwbill->language = LANGUAGE_NONE;
+				$cwbill->uid = $user->uid;
+				$cwbill->field_billdescrip[$cwbill->language][0]['value'] = $bill->field_billdescrip[$bill->language][0]['value'];
+				$cwbill->field_billdescrip[$cwbill->language][0]['format'] = 'full_html';
+				$cwbill->field_linkfulltext[$cwbill->language][0]['format'] = 'full_html';
+				$cwbill->field_linkfulltext[$cwbill->language][0]['value'] = $bill->field_linkfulltext[$bill->language][0]['value'];
+				$cwbill->field_descrip[$cwbill->language][0]['value'] = $bill->field_descrip[$bill->language][0]['value'];
+				$cwbill->field_descrip[$cwbill->language][0]['format'] = 'full_html';
+				$cwbill->field_sponsor[$cwbill->language][0]['value'] = $bill->field_sponsor[$bill->language][0]['value'];
+				$cwbill->field_sponsor[$cwbill->language][0]['format'] = 'filtered_html';
+				$cwbill->field_status[$cwbill->language][0]['value'] = $bill->field_status[$bill->language][0]['value'];
+				$cwbill->field_status[$cwbill->language][0]['format'] = 'full_html';
+				$cwbill->field_committee[$cwbill->language][0]['value'] = $bill->field_committee[$bill->language][0]['value'];
+				$cwbill->field_committee[$cwbill->language][0]['format'] = 'filtered_html';
+				$cwbill->field_bill_type[$cwbill->language][0]['value'] = $billtype;
+				$cwbill->field_bill_number[$cwbill->language][0]['value'] = $billnum;
+				$cwbill->body[$cwbill->language][0]['value'] = $form_state['values']['analysis'];
+				$cwbill->body[$cwbill->language][0]['format'] = 'filtered_html';
+				$cwbill->field_clients[$cwbill->language][0]['tid'] = $cl_term->tid;
+				$cwbill->field_importance[$cwbill->language][0]['value'] = $form_state['values']['imp'];
+				//dpm($cwbill);
+				node_save($cwbill);
+				
+				$path = $pathpre . $cl_term->tid . '/';
+				$form_state['redirect'] = $path;
+				$infomessage = 'Bill ' . $cwbill->title . ' has been added.';
+  				
+				}
+			}
+			else {
+				$infomessage = 'The bill you entered may not exist.  Please check the bill number and try again.';
+			}
+			drupal_set_message($infomessage,'status');
+}
+
+function galobby_cw_send_pdf_form($form, &$form_state, $argument) {
+	
+	$pdf_name = $form_state['build_info']['args'][0];
+	
+	//make sure user has permission to see Client Watch
+	if (user_has_role(10, $usobj) || user_has_role(3, $usobj) || user_has_role(13, $usobj)) {
+		$form['description'] = array(
+  			'#markup' => '<p>Send Report via email.</p>'
+		);
+ 
+		$form['from'] = array(
+  			'#type' => 'textfield',
+			'#title' => "Send email from (address):",
+  			'#size' => 60,
+			'#maxlength' => 128,
+			'#required' => TRUE, //make this field required 
+		);
+		
+		$form['from_name'] = array(
+  			'#type' => 'textfield',
+			'#title' => "Send email from (name):",
+  			'#size' => 60,
+			'#maxlength' => 128,
+			'#required' => TRUE, //make this field required 
+		);
+
+		$form['to'] = array(
+  			'#type' => 'textfield',
+  			'#title' => "Send email to:",
+			'#size' => 60,
+			'#maxlength' => 128,
+  			'#required' => TRUE, //make this field required 
+		);  
+  
+ 		$form['subject'] = array(
+    		'#type' => 'textfield', //you can find a list of available types in the form api
+    		'#title' => "Email subject line:",
+			'#size' => 60,
+			'#maxlength' => 128,
+    		'#required' => TRUE, //make this field required 
+  		);
+  
+		$form['body'] = array(
+    		'#type' => 'textarea',
+    		'#title' => 'Body of message:',
+    		'#cols' => 64,
+    		'#rows' => 10,
+			'#resizable' => TRUE,
+    		'#required' => FALSE, 
+  		);
+
+		$form['pdf_name'] = array(
+  			'#type' => 'text',
+  			'#value' => 'https://galobby.com/sites/default/files/pdf-reports/' . $pdf_name . '.pdf',
+		);
+
+  		$form['submit_button'] = array(
+    		'#type' => 'submit',
+    		'#value' => t('Send Email'),
+  		);
+		return $form;
+	}
+	
+}
+
+function galobby_cw_send_pdf_form_validate($form, &$form_state) {
+
+	//check that email is actually an email address
+	$mail = $form_state['values']['from'];
+	if (!valid_email_address($mail)) {
+  		form_set_error('[from]', t('This email address appears to be invalid.'));
+	}
+	$mail2 = $form_state['values']['to'];
+	if (!valid_email_address($mail2)) {
+  		form_set_error('[to]', t('This email address appears to be invalid.'));
+	}
+}
+
+function galobby_cw_send_pdf_form_submit($form, &$form_state) {
+	
+	$mail = new PHPMailer;
+	
+	$message = $form_state['values']['from_name'] . ' has sent you a Client Watch report.  Click on the following link to view or download the PDF report. <a href="' . $form_state['complete form']['pdf_name']['#value'] . '"> ' .$form_state['complete form']['pdf_name']['#value'] . '</a><br /><br /> ' . $form_state['values']['body'];
+		
+	$mail->From = $form_state['values']['from'];
+	$mail->FromName = $form_state['values']['from_name'];
+		
+	$mail->addAddress($form_state['values']['to']);
+	$mail->addAttachment($form_state['complete form']['pdf_name']['#value']);
+		
+	$mail->isHTML(true);
+	$mail->Subject = $form_state['values']['subject'];
+	$mail->Body = $message;
+	$mail->AltBody = "This is the PHPMailer plain text version of the email content";
+		
+	if (!$mail->send()) {
+		$msg = "Mailer error: " . $mail->ErrorInfo;
+	}
+	else {
+		$msg = 'Message sent!';
+	}
+	drupal_set_message($msg, 'status');
+}
+
+//build out ind client/issue term tables
+function galobby_cw_page_layout($form, &$form_state, $argument, $diff, $year) {
+	//dpm('form state:');
+	//dpm($form_state);
+	global $user;
+	$usobj = user_load($user->uid);
+	$userid = $user->uid;
+	$client = $form_state['build_info']['args'][0];
+	$teamuser = $form_state['build_info']['args'][1];
+	$billhtml = '';
+	if ($year == '20172018') {
+		$nodetype = 'client_watch_20172018';
+		$yearstring = ' for the 2017-2018 legislative session ';
+		$urlslug = 'cw-clients-20172018';
+		$urllanding = 'cw-landing-20172018';
+		$urlothersession = 'cw-clients';
+		$othersessionstring = 'the 2019-2020 legislative session';
+	}
+	else {
+		$nodetype = 'client_watch';
+		$yearstring = '';
+		$urlslug = 'cw-clients';
+		$urllanding = 'cw-landing';
+		$urlothersession = 'cw-clients-20172018';
+		$othersessionstring = 'the 2017-2018 legislative session';
+	}
+	//make sure user has permission to see Client Watch
+	if (user_has_role(10, $usobj) || user_has_role(3, $usobj) || user_has_role(13, $usobj)) {
+	if( !isset( $form_state['storage']['confirm'] ) ) {
+		$n = 0; 
+		$cl_term = taxonomy_term_load($client);
+		//begin to build HTML for page starting with menu links and static content at top of page
+		if ($teamuser != NULL) {
+			$teamob = user_load($teamuser);
+		}
+		if ($teamob != NULL) {
+			$menuhtml = '<div class="block block-menu contextual-links-region" id="block-menu-menu-left-menu-client-watch-la" style="display:none;">
+			<h2>Client Watch Quick Menu</h2></div>
+			<div class="content">
+			<ul class="menu">
+			<li class="first leaf"><a href="/development/' . $urllanding . '" title="">Return to all bills view ' . $yearstring . '</a></li>
+			<li class="leaf"><a href="/development/admin/structure/taxonomy/clients/add" title="">Add New Client or Issue</a></li>
+			<li class="last leaf"><a href="/development/client-watch-clients-issues/' . $userid . '" title="">View/Edit Clients and/or Issues</a></li>
+			<li class="last leaf"><a href="/development/cw-team-edit">Return to Client Watch Team Reports</a></li>
+			<li class="last leaf"><a href="/development/node/redirect" title="">Return to Subscriptions</a></li>
+			<li class="last leaf"><a href="/development/user/' . $userid . '/edit" title="">Edit your Profile</a></li>
+			<li class="last leaf"><a href="/development/user/logout" title="">Logout</a></li>
+			</ul>
+			</div></div></div>';
+			
+			$billhtml .= '<div id="cw-all-bills" class="view-id-client_watch_reporting"><h3>Client Watch Bills for ' . $cl_term->name . ' by ' . $teamob->name . ' ' . $yearstring . '</h3><table id="cw-bill-table1"><thead><tr><th>Show on Report</th><th><a href="/development/' . $urlslug . '/' . $client . '">Importance</a></th><th><a href="/development/' . $urlslug . '/' . $client . '/bill-sort">Bill</a></th><th> Description</th><th>Summary</th><th>Sponsor</th><th>Committees</th><th>Status</th><th>Analysis</th><th>Edit</th><th>Delete</th></tr></thead><tbody>';
+		}
+		else {
+			$menuhtml = '<div class="block block-menu contextual-links-region" id="block-menu-menu-left-menu-client-watch-la" style="display:none;">
+			<h2>Client Watch Quick Menu</h2></div>
+			<div class="content">
+			<ul class="menu">
+	
+			<li class="first leaf"><a href="/development/cw-add-bill/' . $client . '" title="">Add Bill for this Client/Issue</a></li>
+			<li class="first leaf"><a href="/development/' . $urllanding . '" title="">Return to All Bills View</a></li>
+			<li class="first leaf"><a href="/development/' . $urlothersession . '/' . $client . '">View Client Watch Report for this Client/Issue for ' . $othersessionstring . '</a>
+			<li class="leaf"><a href="/development/admin/structure/taxonomy/clients/add" title="">Add New Client or Issue</a></li>
+			<li class="last leaf"><a href="/development/client-watch-clients-issues/' . $userid . '" title="">View/Edit Clients and/or Issues</a></li>
+			<li class="last leaf"><a href="/development/cw-team-edit">Client Watch Team Collaboration</a></li>
+			<li class="last leaf"><a href="/development/node/redirect" title="">Return to Subscriptions</a></li>
+			<li class="last leaf"><a href="/development/user/' . $userid . '/edit" title="">Edit your Profile</a></li>
+			<li class="last leaf"><a href="/development/user/logout" title="">Logout</a></li>
+			</ul>
+			</div></div></div>';
+			
+			$billhtml .= '<div id="cw-all-bills" class="view-id-client_watch_reporting"><h3>Client Watch Bills for ' . $cl_term->name . ' ' . $yearstring . '</h3><table id="cw-bill-table1"><thead><tr><th>Show on Report</th><th><a href="/development/' . $urlslug . '/' . $client . '">Importance</a></th><th><a href="/development/' . $urlslug . '/' . $client . '/bill-sort">Bill</a></th><th> Description</th><th>Summary</th><th>Sponsor</th><th>Committees</th><th>Status</th><th>Analysis</th><th>Edit</th><th>Delete</th></tr></thead><tbody>';
+		}
+		
+		$formtophtml = $menuhtml . $billhtml;
+		
+		$form['top_menu'] = array(
+  			'#markup' => $formtophtml,
+		);
+
+		//let's load user's client watch bills that contain the client/issue selected
+		$query = new EntityFieldQuery();
+		if ($diff == "importance" && $teamuser != NULL) {
+			$entities = $query->entityCondition('entity_type', 'node')
+					->propertyCondition('type', $nodetype)
+					->propertyCondition('uid', $teamob->uid)
+					->fieldCondition('field_clients', 'tid', $client, '=') 
+					->fieldOrderBy('field_importance', 'value', 'ASC')
+					->execute();
+		}
+		if ($diff == "importance" && $teamuser == NULL) {
+			$entities = $query->entityCondition('entity_type', 'node')
+					->propertyCondition('type', $nodetype)
+					->propertyCondition('uid', $userid)
+					->fieldCondition('field_clients', 'tid', $client, '=') 
+					->fieldOrderBy('field_importance', 'value', 'ASC')
+					->execute();
+		}
+		if ($diff == "bill" && $teamuser == NULL) {
+			$entities = $query->entityCondition('entity_type', 'node')
+					->propertyCondition('type', $nodetype)
+					->propertyCondition('uid', $userid)
+					->fieldCondition('field_clients', 'tid', $client, '=') 
+					->propertyOrderBy('title', 'ASC')
+					->execute();
+		}
+		if ($diff == "bill" && $teamuser != NULL) {
+			$entities = $query->entityCondition('entity_type', 'node')
+					->propertyCondition('type', $nodetype)
+					->propertyCondition('uid', $teamob->uid)
+					->fieldCondition('field_clients', 'tid', $client, '=') 
+					->propertyOrderBy('title', 'ASC')
+					->execute();
+		}
+		if (!empty($entities['node'])) {
+			$bills = TRUE;
+  			$cwNodes = array_keys($entities['node']);
+			$cwBills = entity_load('node', $cwNodes);
+			if ($diff == "bill") {
+				usort($cwBills, "comparray1");
+			}
+			
+			foreach ($cwBills as $cw) {
+				//get and assign all fields to a variable
+				$title = $cw->title;
+				$passthrunodes[] = $cw->nid;
+				preg_match('/(\d+)/', $title, $billNum3);
+                $billtype3 = substr($title, 0, 2);
+    			$billnumber3 = $billNum3[0];
+				if ($year == '20172018') {
+					$baseurl3 = 'http://www.legis.ga.gov/legislation/en-US/Display/20172018/';
+				}
+				else {
+					$baseurl3 = 'http://www.legis.ga.gov/legislation/en-US/Display/20192020/';
+				}
+    			$url3 = $baseurl3 . $billtype3 . '/' . $billnumber3;
+				$importance = $cw->field_importance[$cw->language][0]['value'];
+				$descrip = $cw->field_billdescrip[$cw->language][0]['safe_value'];
+				//need to clean non-standard character from short bill description
+				$cleanedbill = substr($descrip, 3, 2);
+				$cleaneddescrip = substr($cw->field_billdescrip[$cw->language][0]['safe_value'], 5);
+				$descrip = $cleanedbill . $cleaneddescrip;
+				$summary = $cw->field_descrip[$cw->language][0]['value'];
+				$sponsor = $cw->field_sponsor[$cw->language][0]['value'];
+				$committee = $cw->field_committee[$cw->language][0]['safe_value'];
+				$status = $cw->field_status[$cw->language][0]['value'];
+				$analysis = $cw->body[$cw->language][0]['safe_value'];
+				
+				//build bill HTML lines
+					$form['pdf_exp_' . $n] = array(
+						'#prefix' => '<tr><td>',
+	 					'#type' => 'checkbox',
+  						'#options' => $form['type_options']['#value'],
+						'#attributes' => array($cw->nid),
+  						'#required' => FALSE, 
+						'#default_value' => TRUE,
+						'#checked' => TRUE,
+						'#suffix' => '</td><td class="views-field-field-importance">' . $importance . '</td><td><a target="_blank" href="' . $url3 . '">' . $cw->title . '</a></td><td>' . $descrip . '</td><td class="views-field-field-descrip">' . $summary . '</td><td>' . $sponsor . '</td><td>' . strip_tags($committee) . '</td><td id ="status">' . strip_tags($status) . '</td><td>' . $analysis . '</td><td><a href="/development/node/' . $cw->nid . '/edit">Edit</a></td><td><a href="/development/node/' . $cw->nid . '/delete">Delete</a></td></tr>',
+					);
+					$forpdf .= '</td><td class="views-field-field-importance">' . $importance . '</td><td><a target="_blank" href="' . $url3 . '">' . $cw->title . '</a></td><td>' . $descrip . '</td><td class="views-field-field-descrip">' . $summary . '</td><td>' . $sponsor . '</td><td>' . $committee . '</td><td>' . strip_tags($status) . '</td><td>' . $analysis . '</td></tr>';
+				
+				$form['pass_thru_nids'][$n] = array(
+					'#type' => 'text',
+					'#default_value' => $cw->nid,
+				);
+				//increment to count rows results
+				$n++;
+			
+			}
+			$form['count'] = array(
+				'#type' => 'text',
+				'#default_value' => $n,
+			);
+		}
+		elseif(empty($entities['node'])) {
+			$bills = FALSE;
+			$billhtml = '<div id="cw-all-bills" class="view-id-client_watch_reporting"><h3>You have no Client Watch Bills ' . $yearstring . ' for ' . $cl_term->name . '</h3><span>You can add bills to this report by clicking <a href="/development/cw-add-bill/' . $client . '" title="">here</a>.</span><ul>';
+			//$billhtml = '<div id="cw-all-bills" class="view-id-client_watch_reporting"><h3>You have no Client Watch Bills ' . $yearstring . ' for ' . $cl_term->name . '</h3><span>You can add bills to this report for the current session by clicking <a href="/development/cw-add-bill/' . $client . '" title="">here</a>.</span><br /><a href="/development/cw-clients-20172018/' . $client . '">Click here</a> to view your Client Watch bills from the 2017-2018 legislative session for ' . $cl_term->name . '. <ul>';
+		}
+		
+		$formtophtml = $menuhtml . $billhtml;
+		
+		$form['top_menu'] = array(
+  			'#markup' => $formtophtml,
+		);
+		
+		//concat html into singular html item to return.
+		$html = $menuhtml . $termslistinghtml . '</ul></div>' . $billhtml . '</tbody></table></div>';
+		$billhtmlforpdf .=  '</ul></div>' . $forpdf . '</tbody></table></div>';
+		
+		$form['htmlforpdf'] = array(
+			'#type' => 'text',
+			'#default_value' => $billhtmlforpdf,
+		);
+	
+	}
+	else {
+		//no permissions message
+		$html = 'You are not subscribed to Client Watch services.  Please contact Georgia Lobby if you feel this is an error or to upgrade your contract to include this valuable service!';
+		
+		$form['top_menu'] = array(
+  			'#markup' => $html,
+		);
+		
+		//return $form;
+	}
+	
+	if($bills) {
+		$form['post_table'] = array(
+  			'#markup' => '</tbody></table></div>',
+		);
+	
+		$form['export_type'] = array(
+  			'#type' => 'radios',
+			'#prefix' => 'Select what you would like to do with the selected bills:',
+			'#options' => array(
+				/*0 => t('Export to PDF'), 1 => t('Export to Excel'), 2 => t('Email Link to PDF Report'), 3 => t('Print Ready PDF')*/
+				0 => t('Export to PDF'), 1 => t('Export to Excel'), 2 => t('Print Ready PDF')/*, 3 => t('Delete Bills')*/
+			),
+			'#default_value' => 0,
+		);
+	
+		$form['export_button'] = array(
+   			'#type' => 'submit',
+   			'#value' => t('Export report'),
+  		);
+	}}
+	
+	else {
+		//confirmation form page
+		$content = '<div> The following Client Watch bills are going to be deleted from your report if you continue: <ul>';
+		foreach($form_state['storage']['nids_delete'] as $bill) {
+			$loaded = node_load($bill);
+			$content .= '<li>';
+			$content .= $loaded->field_billdescrip['und'][0]['value'];
+			$content .= '</li>';
+		}
+    	$content .= '</ul></div><h1>WARNING: You can not undo this action.</h1>';
+
+    	$form['intro'] = array('#markup' => $content);
+		
+		return confirm_form($form, $question="Are you certain you wish to delete these Client Watch bills?", $path, $description = "", $yes = "Delete");
+	}
+	
+	return $form;	
+}
+
+/* NOTE: If Normer wants to change it so that email is back, please check the array values below!! */
+function galobby_cw_submit_multi($form, &$form_state) {
+	//export to all options based on submit used
+	$count = $form_state['complete form']['count']['#default_value'];
+	//pdf creation and pdf ready print
+	if ($form_state['values']['export_type'] == 0 || $form_state['values']['export_type'] == 2) {
+		$redirect = 'https://new.galobby.com/development/sites/default/files/pdf-reports/' . $form_state['values']['form_build_id'] . '.pdf';
+		galobby_cw_create_pdf($form, $form_state, $redirect);
+	}
+	//csv creation
+	elseif ($form_state['values']['export_type'] == 1){
+		// output headers so that the file is downloaded rather than displayed
+			header('Content-Type: text/csv; charset=utf-8');
+		if (is_writable('/home/galobby/public_html/sites/default/files/pdf-reports/')) {
+			$out = fopen('/home/galobby/public_html/sites/default/files/pdf-reports/' . $form_state['values']['form_build_id'] . '.csv', 'a+');
+			$data = array('Importance', 'Bill', 'Description', 'Summary', 'Sponsor', 'Committees', 'Status', 'Analysis');
+			fputcsv($out, $data);
+			$a = 0;
+			$i = 0;
+			//load nodes and put the data into the CSV
+			while ($count > $a) {
+				if ($form_state['complete form']['pdf_exp_' . $a]['#value'] == '1') {
+					$nodeid = $form['pdf_exp_' . $a]['#attributes'][0];
+					$cwb = node_load($nodeid);
+					//clean non-standard character in short bill descrip
+					$n = strlen($cwb->field_billdescrip['und'][0]['value']) - 3;
+					$sub1 = substr($cwb->field_billdescrip['und'][0]['value'], 0, 2);
+					$sub1 .= substr($cwb->field_billdescrip['und'][0]['value'], 3, $n);
+					fputcsv($out, array($cwb->field_importance['und'][0]['value'], $cwb->title, $sub1, strip_tags($cwb->field_descrip['und'][0]['value']), strip_tags($cwb->field_sponsor['und'][0]['value']), strip_tags($cwb->field_committee['und'][0]['value']), strip_tags($cwb->field_status['und'][0]['value']), strip_tags($cwb->body['und'][0]['value'])));
+				}	
+				$a++;
+			}
+			//close CSV for more data and then set the headers for automatic download
+			fclose($out);
+			header('Content-Disposition: attachment; filename="' . $form_state['values']['form_build_id'] . "'.csv'");
+			$msg = 'Excel report <a href="https://galobby.com/sites/default/files/pdf-reports/' . $form_state['values']['form_build_id'] . '.csv" /> ' . $form_state['values']['form_build_id'] . '</a> created. Click link to download the report or share it by copying and pasting the link.';
+			drupal_set_message($msg);
+		}
+	}
+	//Added Sept 2018- if a user selected that they wanted to delete bills, we need to route them to a confirmation page before completing the deletion
+	elseif ($form_state['values']['export_type'] == 3) {
+	
+	}
+	//email the link to the CSV report
+	/*else {
+		$redirect = 'cw-send-email/' . $form_state['values']['form_build_id'];
+		galobby_cw_create_pdf($form, $form_state, $redirect);
+	}*/
+}
+
+function galobby_cw_create_pdf($form, &$form_state, $redirect) {
+	//export to all options based on submit used
+	$count = $form_state['complete form']['count']['#default_value'];
+	//pdf creation and pdf ready print
+		//let's load the user so we can brand the PDF if needed
+		global $user;
+		$usobj = user_load($user->uid);
+		//set up html for pdf export
+		$forpdf = '<head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8" /><style>th, td{border-bottom: 1px solid black; margin: 0px; padding: 0px;} td{valign: middle;}</style></head><body><div id="branding">';
+		if ($usobj->field_logo['und'][0] != NULL) {
+			$logo = $usobj->field_logo['und'][0]['uri'];
+			$img = substr($logo, 8);
+			$url = 'https://galobby.com/sites/default/files/';
+			$forpdf .= '<img src="' . $url . $img . '" max-width="300px" />'; 
+		}
+		else {
+			$forpdf .= '<img src="https://galobby.com/sites/all/themes/freedom/logo.png" />';
+		}
+		$termname = taxonomy_term_load($form_state['build_info']['args'][0]);
+		$forpdf .= '</div><h3>Client Watch Report for ' . $termname->name . '</h3><div>Shareable link: <a href="' . $redirect . '">Client Watch Report for ' . $termname->name . '</a></div><p>&nbsp;</p><br /><table id="cw-bill-table" class="tablesorter"><thead><tr><th></th><th>Importance</th><th>Bill</th><th> Description</th><th>Summary</th><th>Sponsor</th><th>Committees</th><th>Status</th><th>Analysis</th></tr></thead><tbody>';
+		$i = 0;
+		//create the PDF object
+		$dompdf = new DOMPDF();
+		
+		//put nids for report based on "show on report" true/false and put them in html for pdf
+		while ($count > $i) {
+			if ($form_state['complete form']['pdf_exp_' . $i]['#value'] == '1') {
+				//$sub = $form_state['complete form']['pdf_exp_' . $i]['#suffix'];
+				//PRODUCTION SITE OFFSET == -105
+				$sub = substr($form_state['complete form']['pdf_exp_' . $i]['#suffix'], 0, -121);
+				$forpdf .= '<tr><td>' . $sub . '</td></tr>';
+			}
+			$i++;
+		}
+		
+		$pdfhtml .= $forpdf . '</tbody></table><br /><br /><div style="padding-top:20px;"><em>Current as of ' . date("m/d/Y g:ia") . '</em></div></body>';
+		$dompdf->set_paper('A4', 'landscape');
+		
+		//load html into PDF object
+		$dompdf->load_html($pdfhtml);
+		$dompdf->render();
+		//dpm($pdfhtml);
+		
+		//save the PDF to the FTP folder
+		$output = $dompdf->output();
+		file_put_contents("sites/default/files/pdf-reports/" . $form_state['values']['form_build_id'] . ".pdf", $output);
+		
+		//redirect to the new PDF or the email form depending on the redirect link and which report selected
+		//when user comes back to a Drupal page, let's give them the link
+		$message = 'PDF export complete. Access your report here: <a target="_blank" href="https://galobby.com/sites/default/files/pdf-reports/' . $form_state['values']['form_build_id'] . '.pdf" />https://galobby.com/sites/default/files/pdf-reports/' . $form_state['values']['form_build_id'] . '.pdf</a>';
+		drupal_set_message($message);
+	}
+
+/**
+ * Implements hook_form_alter() to redirect users to cw-landing after deleting bills from the table.
+ */
+function galobby_cw_form_alter(&$form, &$form_state, $form_id){
+  	dpm($form_id);
+	switch ($form_id) {
+    case 'node_delete_confirm':
+     	if($form['#node']->type == 'client_watch') {
+        	$form['actions']['submit']['#submit'][] = 'node_delete_confirm_submit';
+        	$form['actions']['submit']['#submit'][] = 'galobby_cw_redirect';
+      	}
+		if($form['#node']->type == 'client_watch_20172018') {
+        	$form['actions']['submit']['#submit'][] = 'node_delete_confirm_submit';
+        	$form['actions']['submit']['#submit'][] = 'galobby_cw2017_redirect';
+      	}
+	case 'client_watch_node_form':
+		if($form['#node']->type == 'client_watch') {
+			//$form['actions']['submit']['#submit'][] = 'node_form_submit';
+			$form['actions']['submit']['#submit'][] = 'galobby_cw_redirect';
+		}
+	case 'client_watch_20172018_node_form':
+		if($form['#node']->type == 'client_watch_20172018') {
+			$form['actions']['submit']['#submit'][] = 'galobby_cw2017_redirect';
+		}
+    break;
+  }
+}
+
+function galobby_cw_redirect($form, &$form_state){
+  // form redirect to main cw-landing
+  $form_state['redirect'] = 'cw-landing';
+}
+
+function galobby_cw2017_redirect($form, &$form_state){
+  // form redirect to main cw-landing
+  $form_state['redirect'] = 'cw-landing-20172018';
+}
+
+//helper functions to nat sort 
+function comparray1($a, $b)  {
+	return strnatcmp($a->title, $b->title);
+}
+
+function comparray2($a, $b)  {
+	return strnatcmp($a->name, $b->name);
+}
+
+//function to fix missing importance on bills by setting all cw bills without importance to "3-medium"
+/*function galobby_cw_fix_imp_cron() {
+	//drupal_set_message('Reached imp fixer');
+			$cwBills = node_load_multiple(array(), array('type' => 'client_watch'));
+			foreach($cwBills as $cwnode) {
+				if($cwnode->field_importance[$cwnode->language][0]['value'] == NULL) {
+					//drupal_set_message('Null value found');
+					$cwnode->field_importance[$cwnode->language][0]['value'] = '3-Medium';
+					node_save($cwnode);
+				}
+			}	
+}*/
+
+function galobby_cw_update_cw_cron () {
+	$cwBills = node_load_multiple(array(), array('type' => 'client_watch'));
+			foreach($cwBills as $cwnode) {
+					node_save($cwnode);
+				}
+				
+}
+
+function galobby_cw_cronapi($op, $job = NULL) {
+	/*$items['galobby_cw_fix_imp_cron'] = array(
+		'description' => 'Fix importance field - run once',
+		'rule' => '* * * * 1',
+		'weight' => 0
+		);*/
+	$items['galobby_cw_update_cw_cron'] = array(
+		'description' => 'Update CW nightly',
+		'rule' => '30 5 * * *',
+		'weight' => 0
+		);
+		
+	return $items;
+}
+
+/*
+ * Hook node_insert... 
+ * Creates client/issue term from field_add_client array, tags the node, and creates user term linkage for private vocab
+ * Client/issue terms are vid 3
+ *
+ *  Added by LT Dec 2017
+ */
+function galobby_cw_node_presave($node)  {
+	if ($node->type == 'client_watch') {
+		$cliuser = $node->uid;
+		//pull each new client/issue from the field_add_client and process to create if current user doesn't have that term in the private taxon table (user_term)
+		if ($node->field_add_client['und'] != NULL) {
+		foreach($node->field_add_client['und'] as $arrayitem) {
+			$results = FALSE;
+			$cliterm = $arrayitem['value'];
+			$tcreated = FALSE;
+			//$n = 0;
+			//does a term with this name exist in the vid 3?
+			$cltrresults = db_query('SELECT tid FROM taxonomy_term_data WHERE vid = :vid AND name = :name', array(':name' => $cliterm, ':vid' => 3));
+			
+			foreach($cltrresults as $termobj) {
+					$results = TRUE;
+					foreach($termobj as $trresult) {
+						//find out if existing term is already linked to this user, another user, or no user at all
+						$noterm = FALSE;
+						$usermatch = FALSE;
+						
+						$trmusrres = db_query('SELECT uid FROM user_term WHERE tid = :tid', array(':tid' => $trresult));
+					
+						foreach ($trmusrres as $trmusr) {
+							//if the term doesn't exist in the private taxon table at all, create new term and link to client
+							if ($trmusr == NULL && $tcreated == FALSE){
+								$clitid = galobby_cw_create_taxonomy_term($cliterm); 
+								$tcreated = TRUE;
+								$noterm = TRUE;
+							}
+							//term exists but is already connected to the user
+							elseif ($trmusr->uid == $cliuser) {
+								$usermatch = TRUE; 
+							}
+						}
+						//term already belongs to user
+						if($usermatch && $noterm == FALSE) {
+							$clitid = $trresult;
+							$match = TRUE;
+						}
+
+						//else term belongs to someone else, let's add the term as a new term and link to user
+						elseif ($usermatch == FALSE && $noterm == FALSE && $tcreated == FALSE) {
+							//dpm('Term belongs to another user so create new one for this user');
+							$clitid = galobby_cw_create_taxonomy_term($cliterm); 
+							$tcreated = TRUE;
+						}
+					}
+			}
+			//if no, create term and insert into private taxon for user
+			if (!$results && $tcreated == FALSE) {
+				$clitid = galobby_cw_create_taxonomy_term($cliterm); 
+				$tcreated = TRUE;
+			}
+			
+			//clitid should be the tid of the array item's new (or existing) tid
+			if ($clitid != NULL) {
+				//let's add the term to the term tagging field
+				//count terms already tagged to get the appropriate array position
+				$i = 0;
+				if ($node->field_clients != NULL) {
+					foreach($node->field_clients['und'] as $count) {
+						$i++;
+					}
+				}
+				
+				$node->field_clients['und'][$i]['tid'] = $clitid;
+			}
+		}
+		//let's clear the add new fields so that they don't show here on future bill node edit screens; the term is now in the field_clients tags
+		$node->field_add_client = NULL;
+		}
+	}
+}
+
+/**
+ * Create a client/issue taxonomy term and return the tid.
+ */
+function galobby_cw_create_taxonomy_term($name) {
+  $term = new stdClass();
+  $term->name = $name;
+  $term->vid = 3;
+  taxonomy_term_save($term);
+
+	return $term->tid;
+}

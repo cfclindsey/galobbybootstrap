@@ -1,0 +1,7 @@
+name = GA Lobby Watch Emails
+description = "Handles email template changes for Bill Watch and Code Watch."
+package = GA Lobby
+core = 7.x
+dependencies[] = subscriptions
+dependencies[] = galobby_watch
+files[] = galobby_email.module

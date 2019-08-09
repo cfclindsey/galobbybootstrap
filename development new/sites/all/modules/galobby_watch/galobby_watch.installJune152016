@@ -1,0 +1,158 @@
+<?php
+
+/**
+ * Implementation of hook_schema to set up notice node/bill node relation table and 
+ * bill node/keywords relations.
+ */
+
+function galobby_watch_schema() {
+	$schema['galobby'] = array(
+		'description' => t('Stores notice node and bill node relations'),
+		'fields' => array(
+			'record_id' => array(
+				'type' => 'serial',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'description' => t('Primary key'),
+			),
+			'notice_node' => array(
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'description' => t('Notice node nid.'),
+			),
+			'bill_node' => array(
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'description' => t('Bill node nid.'),
+			),
+		),
+		'primary key' => array('record_id'),
+	);
+
+	$schema['galobby_keywords'] = array(
+		'description' => t('Stores bill term and keyword relations'),
+		'fields' => array(
+			'record_id' => array(
+				'type' => 'serial',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'description' => t('Primary key'),
+			),
+			'bill_term' => array(
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'description' => t('Bill term tid.'),
+			),
+			'keyword' => array(
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'description' => t('Related keyword tid.'),
+			),
+		),
+		'primary key' => array('record_id'),
+	);
+	
+	$schema['galobby_renewal_emails'] = array(
+		'description' => t('Keeps track of emailed renewal notices'),
+		'fields' => array(
+			'eid' => array(
+				'type' => 'serial',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'description' => t('Primary key'),
+			),
+			'contactEmail' => array(
+				'type' => 'varchar',
+				'length' => 255,
+				'not null' => TRUE,
+				'description' => t('Contact person email'),
+			),
+			'dateEmailed' => array(
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'description' => t('Timestamp of last renewal notice'),
+			),
+		),
+		'primary key' => array('eid'),
+	);
+	
+	$schema['galobby_membership_processing'] = array(
+		'description' => t('Holds user/membership data for later processing'),
+		'fields' => array(
+			'record_id' => array(
+				'type' => 'serial',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'description' => t('Primary key'),
+			),
+			'mpid' => array(
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'description' => t('Membership plan mpid.'),
+			),
+			'uid' => array(
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'description' => t('Subscriber uid.'),
+			),
+			'renewal' => array(
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'description' => t('Timestamp for renewal date.'),
+			),
+			'pkey' => array(
+				'type' => 'varchar',
+				'length' => 255,
+				'not null' => TRUE,
+				'description' => t('User key.'),
+			),
+			'send_email' => array(
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'description' => t('Whether we send an email to the user or not.'),
+			),
+		),
+		'primary key' => array('record_id'),
+	);
+	$schema['galobby_failsafe'] = array(
+		'description' => t('Holds backed up field information for notice nodes'),
+		'fields' => array(
+			'field_id' => array(
+				'type' => 'serial',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'description' => t('Primary key'),
+			),
+			'nid' => array(
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'description' => t('Node id.'),
+			),
+			'field_name' => array(
+				'type' => 'varchar',
+				'length' => 255,
+				'not null' => TRUE,
+				'description' => t('Field name for the node.'),
+			),
+			'field_data' => array(
+				'type' => 'varchar',
+				'length' => 255,
+				'not null' => TRUE,
+				'description' => t('Field data for the node.'),
+			),
+		),
+		'primary key' => array('field_id'),
+	);
+
+	return $schema;
+}  

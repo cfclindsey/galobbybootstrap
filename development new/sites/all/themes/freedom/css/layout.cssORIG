@@ -1,0 +1,123 @@
+/* $Id: layout.css,v 1.4 2010/10/05 01:48:11 dries Exp $ */
+
+/* ---------- Basic Layout Styles ----------- */
+
+#header div.section,
+#featured div.section,
+#messages,
+#main,
+#triptych,
+#footer-columns,
+#footer {
+  width: 960px;
+  margin-left: auto;
+  margin-right: auto;
+}
+#header div.section {
+  position: relative;
+}
+#header {
+	height: 40px;
+}
+.not-logged-in #header {
+	height: 80px;
+}
+.region-header {
+	clear: both;
+  float: right; /* LTR */
+  float: left; /* LTR */
+	margin-top: 100px;
+	width: 100%;
+}
+.with-secondary-menu .region-header {
+  margin-top: 3em;
+}
+.without-secondary-menu .region-header {
+  margin-top: 0px;
+}
+#secondary-menu {
+  position: absolute;
+  right: 0; /* LTR */
+  top: 0;
+  width: 480px;
+}
+#secondary-menu ul {
+	background-color: #064771;
+	padding: 10px;
+}
+#secondary-menu li {
+	display: inline;
+	padding: 5px;
+}
+#secondary-menu li a:hover {
+	color: #0678be;
+}
+#content,
+.sidebar,
+.region-triptych-first,
+.region-triptych-middle,
+.region-triptych-last,
+.region-footer-firstcolumn,
+.region-footer-secondcolumn,
+.region-footer-thirdcolumn,
+.region-footer-fourthcolumn {
+  display: inline;
+  float: left; /* LTR */
+  position: relative;
+}
+.one-sidebar #content {
+  width: 720px;
+}
+.front #content {
+  width: 550px;
+}
+.two-sidebars #content {
+  width: 539px;
+}
+.no-sidebars #content {
+  width: 960px;
+  float: none;
+}
+.sidebar {
+  width: 240px;
+}
+#sidebar-first {
+	width: 181px;
+}
+.front .sidebar {
+  width: 340px;
+}
+#main-wrapper {
+  min-height: 500px;
+}
+#messages div.section,
+#content .section,
+.sidebar .section {
+  padding: 0 15px;
+}
+#sidebar-first .section {
+	padding: 0;
+}
+#breadcrumb {
+  margin: 0 15px;
+}
+.region-triptych-first,
+.region-triptych-middle,
+.region-triptych-last {
+  margin: 20px 20px 30px;
+  width: 280px;
+}
+#footer-wrapper {
+  padding: 35px 5px 30px;
+}
+.region-footer-firstcolumn,
+.region-footer-secondcolumn,
+.region-footer-thirdcolumn,
+.region-footer-fourthcolumn {
+  padding: 0 10px;
+  width: 220px;
+}
+#footer {
+  width: 940px;
+  min-width: 920px;
+}

@@ -1,0 +1,257 @@
+<?php
+/**
+ * @file
+ * Provides a views filter that sorts titles by a more natural manner by
+ * ignoring articles like "The" and "A."
+ *
+ * Normal sort:
+ * A Chorus Line
+ * All American
+ * Fiddler on the Roof
+ * Oklahoma!
+ * The King And I
+ *
+ * Natural sort:
+ * All American
+ * A Chorus Line
+ * Fiddler on the Roof
+ * The King And I
+ * Oklahoma!
+ */
+
+/**
+ * Implementation of hook_menu().
+ */
+function views_natural_sort_menu() {
+  $items = array();
+
+  $items['admin/config/views_natural_sort'] = array(
+    'title' => 'Views Natural Sort',
+    'description' => 'Configuration and settings for natural sorting.',
+    'page callback' => 'system_admin_menu_block_page',
+    'access arguments' => array('administer site configuration'),
+    'file' => 'system.admin.inc',
+    'file path' => drupal_get_path('module', 'system'),
+  );
+  $items['admin/config/views_natural_sort/rebuild_index'] = array(
+    'title' => 'Rebuild Search Index',
+    'description' => 'Rebuild Views Natural Sort\'s search index',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('views_natural_sort_rebuild_index_form'),
+    'access callback' => 'user_access',
+    'access arguments' => array('administer views'),
+    'file' => 'views_natural_sort.admin.inc',
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['admin/config/views_natural_sort/settings'] = array(
+    'title' => 'Configure Natural Sort Settings',
+    'description' => 'Set the settings for how particular transformations should behave.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('views_natural_sort_settings_form'),
+    'access callback' => 'user_access',
+    'access arguments' => array('administer views'),
+    'file' => 'views_natural_sort.admin.inc',
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  return $items;
+}
+
+/**
+ * Implementation of hook_views_api().
+ */
+function views_natural_sort_views_api() {
+  return array(
+    'api' => 3.0,
+  );
+}
+
+/**
+ * Implements hook_views_natural_sort_get_entry_types().
+ */
+function views_natural_sort_views_natural_sort_get_entry_types() {
+  return array(array(
+    'entity_type' => 'node',
+    'field' => 'title',
+  ));
+}
+
+/**
+ * Implements hook_views_natural_sort_get_rebuild_data();
+ */
+function views_natural_sort_views_natural_sort_get_rebuild_data($entry_type){
+  if($entry_type['entity_type'] != 'node' || $entry_type['field'] != 'title') {
+    return array();
+  }
+  module_load_include('inc', 'views_natural_sort', 'views_natural_sort.node');
+  $result = db_select('node', 'n')
+    ->fields('n', array('nid', 'title'))
+    ->execute();
+  $data = array();
+  foreach ($result as $row ) {
+    $data[] = _views_natural_sort_node_to_vns($row);
+  }
+  return $data;
+}
+
+/**
+ * Implements hook_node_insert().
+ *
+ * This keeps our natural sort index up to date.
+ */
+function views_natural_sort_node_insert($node) {
+  module_load_include('inc', 'views_natural_sort', 'views_natural_sort.node');
+  _views_natural_sort_store_node($node);
+}
+
+/**
+ * Implementation of hook_node_update().
+ *
+ * This keeps our natural sort index up to date.
+ */
+function views_natural_sort_node_update($node) {
+  module_load_include('inc', 'views_natural_sort', 'views_natural_sort.node');
+  _views_natural_sort_store_node($node);
+}
+
+/**
+ * Implementation of hook_node_delete().
+ *
+ * This keep sour natural sort index clean.
+ */
+function views_natural_sort_node_delete($node) {
+  module_load_include('inc', 'views_natural_sort', 'views_natural_sort.node');
+  _views_natural_sort_remove_node($node);
+}
+
+/**
+ * Store Multiple views_natural_sort entries
+ *
+ * @param array $index_entries
+ *   An array of entries to store in the views_natural_sort table.
+ *
+ * @see views_natural_sort_store
+ */
+function views_natural_sort_store_multiple(array $index_entries) {
+  foreach($index_entries as $entry) {
+    views_natural_sort_store($entry);
+  }
+}
+
+/**
+ * Save an entry to the database that represents a views_natural_sort index
+ *
+ * @param array $index_entry
+ *   Mirrors the views_natural_sort table
+ *     $eid - Entity Id of the item referenced
+ *     $entity_type - The Entity Type. Ex. node
+ *     $field - reference to the property or field name
+ *     $delta - the item number in that field or property
+ *     $content - The transformed data that a field will
+ *                be sorted by.
+ */
+
+function views_natural_sort_store(array $index_entry) {
+  //This should take a formatted object and store it into the views_natural_sort table.
+  $string = views_natural_sort_transform($index_entry);
+
+  // The size limit on the content field for views_natual_sort is sometimes not
+  // enough. Lets truncate all data down to that size. I personally feel the
+  // inaccuracy is an acceptable loss, as the bigger the string gets, the less
+  // permanent the sort.
+  //
+  // TODO: Have this pick up off of the schema so if someone does a
+  // hook_schema_alter() on me.
+  return db_merge('views_natural_sort')
+    ->key(array(
+      'eid' => $index_entry['eid'],
+      'entity_type' => $index_entry['entity_type'],
+      'field' => $index_entry['field'],
+      'delta' => $index_entry['delta'],
+    ))
+    ->fields(array(
+      'eid' => $index_entry['eid'],
+      'entity_type' => $index_entry['entity_type'],
+      'field' => $index_entry['field'],
+      'delta' => $index_entry['delta'],
+      'content' => substr($string, 0, 255),
+    ))
+    ->execute();
+}
+
+/**
+ * Remove a views_natural_sort index entry based on keys
+ *
+ * @param array $index_entry
+ *   Mirrors the views_natural_sort table
+ *     $eid - Entity Id of the item referenced
+ *     $entity_type - The Entity Type. Ex. node
+ *     $field - reference to the property or field name
+ *     $delta - the item number in that field or property
+ */
+function views_natural_sort_remove($index_entry) {
+  //TODO: Make sure all the keys are in the index_entry.
+  return db_delete('views_natural_sort')
+    ->condition('eid', $index_entry['eid'])
+    ->condition('entity_type', $index_entry['entity_type'])
+    ->condition('field', $index_entry['field'])
+    ->condition('delta', $index_entry['delta'])
+    ->execute();
+}
+
+/**
+ * Encodes a string into an ascii-sortable string such as:
+ *  - Leading articles in common languages are ingored: The A An El La Le Il
+ *  - Unimportant punctuation is ignored: # ' " ( )
+ *  - Unimportant words are ignored: and of or
+ *
+ * @param array $index_entry
+ *   Mirrors the views_natural_sort table
+ *     $eid - Entity Id of the item referenced
+ *     $entity_type - The Entity Type. Ex. node
+ *     $field - reference to the property or field name
+ *     $delta - the item number in that field or property
+ *
+ * @return string
+ *   The transformed string
+ */
+function views_natural_sort_transform($index_entry) {
+  // Get copy the original string.
+  $string = $index_entry['content'];
+  module_load_include('inc', 'views_natural_sort', 'views_natural_sort');
+  foreach (views_natural_sort_get_transformations($index_entry) as $transformation_method) {
+    $string = $transformation_method($string);
+  }
+  return $string;
+}
+
+/**
+ * Get the full list of transformations to run when saving a natural sort entry.
+ * @param array $index_entry
+ *   The original entry to be written to the views_natural_sort table.
+ *     $eid - Entity Id of the item referenced
+ *     $entity_type - The Entity Type. Ex. node
+ *     $field - reference to the property or field name
+ *     $delta - the item number in that field or property
+ *     $content - The transformed data that a field will
+ *                be sorted by.
+ *
+ * @return array
+ *   The final list of transformations.
+ */
+function views_natural_sort_get_transformations($index_entry) {
+  $transformations = array(
+    'views_natural_sort_remove_beginning_words',
+    'views_natural_sort_remove_words',
+    'views_natural_sort_remove_symbols',
+    'views_natural_sort_numbers',
+  );
+
+  if (variable_get('views_natural_sort_days_of_the_week_enabled', FALSE)) {
+    $transformations[] = "views_natural_sort_days_of_the_week_sort_days";
+  }
+  // Allow other modules to modify the transformation that happens here if
+  // needed.
+  drupal_alter('views_natural_sort_transformations', $transformations, $index_entry);
+  return $transformations;
+}

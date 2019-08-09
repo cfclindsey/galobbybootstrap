@@ -1,0 +1,324 @@
+<?php
+
+/*
+ * Run some additional checks and changes on emails sent out to subscribers.  To run
+ * AFTER main GALobby module and Subscriptions module.
+ */
+
+	/*
+	 * Function on hook_mail_alter().  
+	 */
+	function galobby_email_mail_alter(&$message)  {
+		//if message is a notice of either type
+		if ($message['key'] == 'node-type-notice' || $message['key'] == 'node-type-government_watch_notice')  { 
+			$prebodyString = '<br />';
+			$keywordsNames[] = NULL;
+			$uid = $message['params']['data']['subs']['uid'];
+            // Note - moved subscriptions processing after data formatting
+			
+			dpm($message['params']['data']['subs']['object']->field_date1['und']['0']['value']);
+			
+			//STEP 1 - format date/time for emails
+			if ($message['params']['data']['subs']['object']->field_date1['und']['0']['value'] == NULL || $message['params']['data']['subs']['object']->field_use_date['und']['0']['value'] == 1) {
+				$startDate = $message['params']['data']['subs']['object']->field_starts['und']['0']['value'];
+				$endDate = $message['params']['data']['subs']['object']->field_ends['und']['0']['value'];
+				$startTime = $message['params']['data']['subs']['object']->field_starts_time['und']['0']['value'];
+				$endTime = $message['params']['data']['subs']['object']->field_ends_time['und']['0']['value'];
+				
+				$offset = 0;
+				$DST = $startDate->format('I');
+				if ($DST) {
+					$offset = 4;
+				}
+				else {
+					$offset = 5;
+				}
+				//dpm($offset);
+				
+				if ($startTime != NULL) {
+					$startTime = substr($startTime, 11);
+					preg_match_all('/(\d+)/', $startTime, $timeArr);
+					$formhour = $timeArr[0][0];
+					$formmin = $timeArr[0][1];
+					$formhour = $formhour - $offset;
+					$startTime = $formhour . ':' . $formmin . ':00';
+					$startTime = strtotime($startTime);
+				}
+				if ($endTime != NULL) {
+					$endTime = substr($endTime, 11);
+					preg_match_all('/(\d+)/', $endTime, $timeArr1);
+					$formhour1 = $timeArr1[0][0];
+					$formmin1 = $timeArr1[0][1];
+					$formhour1 = $formhour1 - $offset;
+					$endTime = $formhour1 . ':' . $formmin1 . ':00';
+					$endTime = strtotime($endTime);
+				}
+                // Added 2-18-16 Joe to capture NULL start date error
+                if ($startDate != NULL) {
+				  $startDate = strtotime($startDate);
+				  $endDate = strtotime($endDate);
+                
+                if ($startDate != 0 || $startDate != 1) {
+				  $startFormatted = format_date($startDate, 'custom', 'l, M j, Y');
+                }
+                }
+				if ($startTime != NULL) {
+                    if ($startTime != 0 || $startTime != 1) {
+					$startFormatted = $startFormatted . ' @ ' . format_date($startTime, 'custom', 'g:i a');
+                    }
+                    else {
+                    $startFormatted = " ";
+                    }
+				}
+				if ($endDate != NULL) {
+                    if ($endDate != 0 || $endDate != 1) {
+					$endFormatted = format_date($endDate, 'custom', 'l, M j, Y');
+                    }
+					if ($endTime != NULL) {
+                        if ($endTime != 0 || $endTime != 1) {
+						$endFormatted = $endFormatted . ' @ ' . format_date($endTime, 'custom', 'g:i a');
+                        }
+                        else {
+                        $endFormatted = " ";
+                        }
+					}	
+				}	
+				else {
+					$endFormatted = NULL;
+				}
+				$message['params']['data']['subs']['object']->field_format_start['und'][0]['value'] = $startFormatted;
+				$message['params']['data']['subs']['object']->field_format_end['und'][0]['value'] = $endFormatted;
+				$message['params']['data']['subs']['object']->field_date1 = NULL;
+			}
+			
+			if ($message['params']['data']['subs']['object']->field_date1['und']['0']['value'] == $message['params']['data']['subs']['object']->field_date1['und']['0']['value2'] && $message['params']['data']['subs']['object']->field_date1['und']['0']['value'] != NULL) {
+				$datetime = $message['params']['data']['subs']['object']->field_date1['und']['0']['value'];
+				$substring = substr($datetime, 11);
+				if($substring == '05:00:00') { 
+					$datetime = strtotime($datetime);
+                    if ($datetime != 0 || $datetime != 1)  {
+					  $formatted = format_date($datetime, 'custom', 'l, M j, Y');
+                      }
+                    else
+                      {
+                      $formatted = " ";
+                      }
+					$message['params']['data']['subs']['object']->field_format_start['und'][0]['value'] = $formatted;
+					$message['params']['data']['subs']['object']->field_format_end['und'][0]['value'] = $formatted;
+					$message['params']['data']['subs']['object']->field_date1 = NULL;
+				}
+			}
+			
+			
+			
+            
+            //STEP 2 - Process for bill watch and code watch
+            $userObj = user_load($uid);
+            
+            // Only process if user is active status = 1
+            // If user is one or more of the following roles - admin (3), code watch (8), bill watch (9), bundled (10), pamela (12) then process bill watch and code watch 
+            if ($userObj->status == 1) {
+            if ( array_key_exists("3", $userObj->roles) || array_key_exists("8", $userObj->roles) || array_key_exists("9", $userObj->roles) || array_key_exists("10", $userObj->roles) || array_key_exists("12", $userObj->roles) ) { 
+            
+            
+			$billWintro = '<strong>Bill Watch<br />These are the bill(s) that you are following.</strong><br />';
+			$codeWintro = '<br /><br /><strong>Code Watch<br />Bill(s) that contain these word(s) that you have indicated interest in following.</strong><br />';
+			$i = 0;
+			$j = 0;
+            
+            
+			//put all terms on the notice node and put into an array	
+
+			if ($message['params']['data']['subs']['object']->field_billterms != NULL) {
+				$allNodeTerms[0] = $message['params']['data']['subs']['object']->field_billterms['und']; 
+				foreach($allNodeTerms[0] as $billtidArray)  {
+					foreach($billtidArray as $billtidArr) {
+							$anotherArray[] = $billtidArr;
+					}
+				}
+				$anotherArray1 = array_unique($anotherArray);
+                $anotherArray = NULL; // Free memory
+                unset($anotherArray); // Free memory
+			}
+            
+			if ($message['params']['data']['subs']['object']->field_keywords != NULL) {
+				$allNodeTerms[1] = $message['params']['data']['subs']['object']->field_keywords['und'];
+                foreach($allNodeTerms[1] as $keywordtidArray)  {
+                    foreach($keywordtidArray as $keywordtidArr) {
+                            $anotherArray2[] = $keywordtidArr;
+                    }
+                }
+            $anotherArray3 = array_unique($anotherArray2); // array of keywords
+            $anotherArray2 = NULL; // Free memory
+            unset($anotherArray2); // Free memory
+            }
+			
+			//go ahead and pull term information for usage - tid, vid, name
+            //Changed by Joe on 2-29-2016
+            // billinfo is an array contains tid, vid, name of only those items found on the notice that the subscriber is following.  It is sorted by vid first, then term name.
+
+			$bill_info[] = NULL;
+            if ($message['params']['data']['subs']['object']->field_billterms != NULL) {
+            $or = db_or()->condition('s.value', $anotherArray3, 'IN')->condition('s.value', $anotherArray1, 'IN');
+            $query = db_select('subscriptions','s');
+            $query->distinct();
+            $query->join('taxonomy_term_data','t','s.value = t.tid');
+            $query->fields('t',array('tid','vid','name'))
+             ->condition('s.recipient_uid',$uid,'=')
+             ->condition($or);
+            $query->orderBy('t.vid','ASC')
+            ->orderBy('t.name','ASC');
+            $result = $query->execute();
+            while ($record = $result->fetchAssoc()) {
+              $bill_info[] = $record;
+            }
+            }
+            
+            // Build an array called billinfo that matches existing code
+            if ($bill_info != NULL) {
+            $billinfo = (array) new stdClass();
+            $arraysize = sizeof($bill_info);
+            for ($x = 0; $x < $arraysize; $x++) {
+                $billinfo[$x] = new StdClass;
+                $billinfo[$x]->tid = $bill_info[$x]['tid'];
+                $billinfo[$x]->name = $bill_info[$x]['name'];
+                $billinfo[$x]->vid = $bill_info[$x]['vid'];
+            }}
+            
+			//begin iterating through and comparing terms on notice to user sub. terms
+
+					foreach($billinfo as $term) {
+								//if term is a bill, prepare bill message and highlight bill in the body text of the notice node
+								if($term->vid == 7) {
+									if ($i == 0) { 
+										$prebodyString = $prebodyString . $billWintro;
+										$i++;
+									}
+									preg_match('/([hHsS][bBrR])/', $term->name, $billPre);
+									preg_match('/(\d+)/', $term->name, $billNum);
+    								$billtype = $billPre[0];
+    								$billtype = strtolower($billtype);
+    								$billnumber = $billNum[0];
+						
+									$billWString = '<a href="http://www.legis.ga.gov/legislation/en-US/Display/20172018/' . $billtype . '/' . $billnumber . '">' . $term->name . '</a>';							
+									
+									$prebodyString = $prebodyString . '<br />Bill Watch- <span style="background:yellow;">' . $billWString . '</span>';
+								}
+								//elseif keyword, prepare keyword message 
+								elseif($term->vid == 8) {
+									if ($j == 0) {
+										$prebodyString = $prebodyString . $codeWintro;
+										$j++;
+									}
+									//set up conditions to avoid duplicate keyword messages
+									$matchFound = FALSE;
+									if($keywordsNames != NULL) {
+										foreach($keywordsNames as $keywordName) {
+											if($keywordName == $term->name) {
+												$matchFound = TRUE;
+											}
+										}
+									}
+									//if no duplicates, continue on
+									if($matchFound == FALSE) {
+										if (!empty($bills)) {
+                                            $bills = NULL; // Free up memory
+											unset($bills);
+										}
+										$keywordsNames[] = $term->name;
+										$keywordMessage = '<br />Code Watch- The keyword [<span style="background:yellow;">' . $term->name . '</span>] is found in the following bill(s):<br /> ';
+										
+										$results1 = db_query('SELECT DISTINCT bill_term FROM {galobby_keywords} WHERE keyword = :keywordtid', array(':keywordtid' => $term->tid));
+										foreach($results1 as $rows)  {
+											$bills[] = $rows->bill_term;
+										}
+										if ($bills != NULL) {
+										$bills1 = array_unique($bills);
+										foreach($bills1 as $bill)  {
+											//get names, remove duplicates
+											$results2 = db_query('SELECT name FROM {taxonomy_term_data} WHERE tid = :billtid', array(':billtid' => $bill));
+											foreach($results2 as $rows2) {
+												$billNames[] = $rows2->name;
+											}
+											if (!empty($billNames)) {
+												$billNamesArr = array_unique($billNames);
+												foreach($anotherArray1 as $billtid) {
+													//assuming a match between a keyword and a bill that is tagged on the notice, add the bill name to the keyword message
+													if ($bill == $billtid) {
+														foreach($billNamesArr as $billName) {
+															preg_match('/([hHsS][bBrR])/', $billName, $billPre);
+															preg_match('/(\d+)/', $billName, $billNum);
+    														$billtype = $billPre[0];
+    														$billtype = strtolower($billtype);
+    														$billnumber = $billNum[0];
+						
+															$codeWString = '<a href="http://www.legis.ga.gov/legislation/en-US/Display/20172018/' . $billtype . '/' . $billnumber . '">' . $billName . '</a>';							
+															
+															$keywordMessage = $keywordMessage . $codeWString . '<br />';
+														} // close loop on formatting bill references for code watch
+													} //close if bill match billtid
+													unset($billNames);
+												} //close loop on unique bills on tagged notice
+											} // close if bills names for code watch aren't null
+										} // close loop on processing bills for code watch
+                                        } // close  if bills aren't null
+										$prebodyString = $prebodyString . $keywordMessage;
+									} // close if no dupes
+									$keywordsNames[] = $term->name;
+								} // Close if code watch
+							
+					} // Close loop main bill watch / code watch processing through everything in bill_info array
+                } // Close loop only if user is bill watch, code watch, bundled, admin, and/or pamela
+            }  // Close loop only if user is active (status 1)
+            
+			// STEP 3 - multiple file upload handling and formatting
+			if ($message['params']['data']['subs']['object']->field_fileupload != NULL) {
+				$i = 0;
+				$filesHTML = '<br /><br />Attached files:<br /><ul>';
+				$files = $message['params']['data']['subs']['object']->field_fileupload['und'];
+				foreach ($files as $file) {
+					$fileuri = substr($message['params']['data']['subs']['object']->field_fileupload['und'][$i]['uri'], 9);
+					$filesHTML = $filesHTML . '<li><a href="https://galobby.com/sites/default/files/' . $fileuri . '">' . $message['params']['data']['subs']['object']->field_fileupload['und'][$i]['filename'] . '</a></li>';
+					$i++;
+				}
+				$filesHTML = $filesHTML . '</ul>';
+				$message['params']['data']['subs']['object']->body['und']['0']['safe_value'] = $message['params']['data']['subs']['object']->body['und']['0']['safe_value'] . $filesHTML;
+			}
+            $userObj = NULL; // free up memory
+            unset($userObj); // free up memory
+			//add the message to the appropriate field for the email template
+			$message['params']['data']['subs']['object']->field_message['und'][0]['safe_value'] = $prebodyString;
+            
+            $prebodyString = NULL; //Free up memory
+            unset($prebodyString); //Free up memory
+            $billinfo = NULL; // free up memory
+            unset($billinfo); // free up memory            
+            $billNamesArr = NULL; // free up memory
+            unset($billNamesArr); // free up memory
+            $keywordsNames = NULL; //Free up memory
+            unset($keywordsNames); //Free up memory
+            $bills = NULL; //Free up memory
+            unset($bills); //Free up memory
+            $bills1 = NULL; //Free up memory
+            unset($bills1); //Free up memory
+            $anotherArray1 = NULL; // Free memory
+            unset($anotherArray1); // Free memory
+            $anotherArray3 = NULL; // Free memory
+            unset($anotherArray3); // Free memory
+            $billNames = NULL; // free up memory
+            $allNodeTerms = NULL; //free up memory
+            unset($allNodeTerms); //Free up memory
+            $rows = NULL; //Free up memory
+            unset($rows); //Free up memory
+            $rows2 = NULL; //Free up memory
+            unset($rows); //Free up memory
+            $results = NULL; //Free up memory
+            unset($results); //Free up memory
+            $results2 = NULL; //Free up memory
+            unset($results2); //Free up memory
+            $result = NULL; //Free up memory
+            unset($result); //Free up memory
+            
+		}
+		 dpm($message);
+	}

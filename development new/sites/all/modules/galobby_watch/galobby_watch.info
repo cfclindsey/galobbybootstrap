@@ -1,0 +1,9 @@
+name = GA Lobby Watch
+description = "Handles additional Bill Watch and Code Watch functions."
+package = GA Lobby
+core = 7.x
+dependencies[] = subscriptions
+files[] = galobby_watch.module
+files[] = galobby_watch_simple_html_dom.inc
+files[] = galobby_watch.install
+files[] = galobby_watch_class.pdf2text.inc

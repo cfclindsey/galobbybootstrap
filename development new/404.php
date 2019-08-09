@@ -1,0 +1,1 @@
+<?php exit('404 - Page not found.  Please check your URL and try again.'); ?>

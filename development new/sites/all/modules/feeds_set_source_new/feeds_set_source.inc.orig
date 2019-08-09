@@ -1,0 +1,37 @@
+<?php
+
+/**
+ * Provides the Feeds Fetcher with a $source determined by user info in CCK fields.
+ */
+
+class feeds_set_source extends FeedsHTTPFetcher {
+
+ /**
+   *   Source determined by base URL and user entered info in CCK fields.
+   */
+
+  function sourceForm($source_config) {
+    $form = array();
+    $form['source'] = array(
+      '#maxlength' => NULL,
+      '#required' => FALSE,
+    );
+    return $form;
+  }
+	
+  
+  public function fetch(FeedsSource $source) {
+   		$baseURL = 'http://www.legis.ga.gov/legislation/en-US/Display/';
+		$sessionYear = "20112012/";
+		//$obj = entity_metadata_wrapper('node', $node);
+		//$billPrefix = $obj->field_billprefix->value(); //php to get what is entered in field_billprefix?
+		//$billNumber = $obj->field_billnumber->value(); //php to get what is entered in field_billnumber?
+		$billPrefix = field_get_items('node', $node, 'field_billprefix');
+		$billNumber = field_get_items('node', $node, 'field_billnumber');
+		$siteURL = $baseURL . $sessionYear . $billPrefix . "/" . $billNumber;
+		echo "$siteURL";
+        return new FeedsHTTPFetcherResult($siteURL);
+  }
+
+}
+?>

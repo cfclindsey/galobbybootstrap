@@ -1,0 +1,203 @@
+<?php
+
+/**
+ *  This module will handle creation of new UX for Client Watch Reporting including creation of landing pages, tables, new functionality,
+ *	and PDF exports- both on the fly and automatically.
+ *	New module as of May 2017.
+ */
+
+//Create menu items and register with system
+function galobby_cw_menu() {
+  $items = array();
+
+  $items['cw-landing'] = array( //this creates a URL that will call this form at "cw-landing"
+    'title' => 'Client Watch Reports', //page title
+    'description' => 'Landing page for Client Watch Reports',
+    'page callback' => 'galobby_cw_bill_table_page',     
+  	'access arguments' => array('access content'),
+    'access callback' => TRUE
+  );
+
+	$items['cw-clients/%'] = array( //this creates a URL that will call this form at "cw-landing"
+    'title' => 'Client Watch Reports by Client/Issue', //page title
+    'description' => 'Client Watch Reports by Client/Issue',
+	'page callback' => 'drupal_get_form',
+	'page arguments' => array('galobby_cw_ind_client_table_form', 1),
+	//$form_state['build_info']['args'] = array(1),
+    //'page callback' => 'galobby_cw_ind_client_table_page',   
+  	'access arguments' => array('access content'),
+    'access callback' => TRUE
+  );
+
+  return $items;
+}
+
+//create CW landing page
+function galobby_cw_bill_table_page() {
+	global $user;
+	$usobj = user_load($user->uid);
+	$userid = $user->uid;
+	//make sure user has permission to see Client Watch
+	if (user_has_role(10, $usobj) || user_has_role(3, $usobj) || user_has_role(13, $usobj)) {
+		//begin to build HTML for page starting with menu links and static content at top of page
+		$menuhtml = '<div class="block block-menu contextual-links-region" id="block-menu-menu-left-menu-client-watch-la" style="display:none;">
+<h2>Client Watch Quick Menu</h2></div>
+<div class="content">
+<ul class="menu">
+	<li class="first leaf"><a href="node/add/client-watch" title="">Quick Add Bill for Client Watch</a></li>
+	<li class="leaf"><a href="admin/structure/taxonomy/clients/add" title="">Add New Client or Issue</a></li>
+	<li class="last leaf"><a href="cw-team-edit">Client Watch Team Collaboration</a></li>
+	<li class="last leaf"><a href="user/' . $userid . '/edit" title="">Edit your Profile</a></li>
+	<li class="last leaf"><a href="user/logout" title="">Logout</a></li>
+</ul>
+</div></div></div>';
+		
+		//bill table html
+		$billhtml = '<div id="cw-all-bills" class="view-id-client_watch_reporting"><h3>All Client Watch Bills</h3><table id="cw-bill-table" class="tablesorter"><thead><tr><th>Importance</th><th>Bill</th><th> Description</th><th>Summary</th><th>Sponsor</th><th>Committees</th><th>Status</th><th>Analysis</th><th>Client/Issue</th><th>Edit</th><th>Delete</th></tr></thead><tbody>';
+		//let's load user's client watch bills...
+		$query = new EntityFieldQuery();
+		$entities = $query->entityCondition('entity_type', 'node')
+					->propertyCondition('type', 'client_watch')
+					->propertyCondition('uid', $userid)
+					->execute();
+		if (!empty($entities['node'])) {
+  			$cwNodes = array_keys($entities['node']);
+			$cwBills = entity_load('node', $cwNodes);
+			foreach ($cwBills as $cw) {
+				//dpm($cw);
+				//get and assign all fields to a variable
+				$title = $cw->title;
+				preg_match('/(\d+)/', $title, $billNum3);
+                $billtype3 = substr($title, 0, 2);
+    			$billnumber3 = $billNum3[0];
+				$baseurl3 = 'http://www.legis.ga.gov/legislation/en-US/Display/20172018/';
+    			$url3 = $baseurl3 . $billtype3 . '/' . $billnumber3;
+				$importance = $cw->field_importance[$cw->language][0]['value'];
+				$descrip = $cw->field_billdescrip[$cw->language][0]['value'];
+				$summary = $cw->field_descrip[$cw->language][0]['value'];
+				$sponsor = $cw->field_sponsor[$cw->language][0]['value'];
+				$committee = $cw->field_committee[$cw->language][0]['safe_value'];
+				$status = $cw->field_status[$cw->language][0]['value'];
+				$analysis = $cw->body[$cw->language][0]['safe_value'];
+				$cterms = '';
+				$c = 0;
+				$terms = array();
+				//get terms to prepare for report links
+				foreach ($cw->field_clients[$cw->language] as $t) {
+					$userTerms[] = $t['tid'];
+					$term = entity_load_single('taxonomy_term', $t['tid']);
+					$terms[] = $term->name;
+					$c++;
+				}
+				foreach ($terms as $ter) {
+					$cterms .= $ter;
+					if ($c - 1 > 0) {
+						$cterms .= ', ';
+					}
+					$c--;
+				}
+				$c = 0;
+				//build bill HTML lines
+				$billhtml .= '<tr><td class="views-field-field-importance">' . $importance . '</td><td><a href="' . $url3 . '">' . $cw->title . '</a></td><td>' . $descrip . '</td><td class="views-field-field-descrip">' . $summary . '</td><td>' . $sponsor . '</td><td>' . $committee . '</td><td>' . $status . '</td><td>' . $analysis . '</td><td>' . $cterms . '</td><td><a href="node/' . $cw->nid . '/edit">Edit</a></td><td><a href="node/' . $cw->nid . '/delete">Delete</a></td></tr>';
+			}
+		}
+		//remove dups in terms array
+		$userTerms = array_unique($userTerms);
+		//start listings html
+		$termslistinghtml = '<div id="reports-by-term"><h3>Client Watch Reports by Client/Issue</h3><ul>';
+		//load each term to get the name and set up for the correct URL
+		foreach ($userTerms as $te) {
+			$query = new EntityFieldQuery();
+			$entities = $query->entityCondition('entity_type', 'taxonomy_term')
+					->entityCondition('bundle', array('clients'))
+					->propertyCondition('tid', $te)
+					->execute();
+			if (!empty($entities['taxonomy_term'])) {
+  				$cwTerms = array_keys($entities['taxonomy_term']);
+				$cwClients = entity_load('taxonomy_term', $cwTerms);
+				foreach ($cwClients as $cli) {
+					$termslistinghtml .=  '<li><a href="cw-clients/' . $cli->name .'">' . $cli->name . '</a></li>';
+				}
+			}
+		}
+		unset($userTerms);
+		
+		//concat html into singular html item to return.
+		$html = $menuhtml . $termslistinghtml . '</ul></div>' . $billhtml . '</tbody></table></div>';
+	}
+	else {
+		//no permissions message
+		$html = 'You are not subscribed to Client Watch services.  Please contact Georgia Lobby if you feel this is an error or to upgrade your contract to include this valuable service!';
+	}
+	return $html;
+}
+
+//create CW individual term page
+function galobby_cw_ind_client_table_form($form, &$form_state, $argument) {
+	global $user;
+	$usobj = user_load($user->uid);
+	$userid = $user->uid;
+	dpm($form_state);
+	dpm($client);
+	//make sure user has permission to see Client Watch
+	/*if (user_has_role(10, $usobj) || user_has_role(3, $usobj) || user_has_role(13, $usobj)) {
+		$cl_term = taxonomy_get_term_by_name($client, 'clients');
+		foreach($cl_term as $cl_t) {
+			$cl_tid = $cl_t->tid;
+		}
+		//begin to build HTML for page starting with menu links and static content at top of page
+		$menuhtml = '<div class="block block-menu contextual-links-region" id="block-menu-menu-left-menu-client-watch-la" style="display:none;">
+<h2>Client Watch Quick Menu</h2></div>
+<div class="content">
+<ul class="menu">
+	<li class="first leaf"><a href="node/add/client-watch" title="">Quick Add Bill for Client Watch</a></li>
+	<li class="leaf"><a href="admin/structure/taxonomy/clients/add" title="">Add New Client or Issue</a></li>
+	<li class="last leaf"><a href="cw-team-edit">Client Watch Team Collaboration</a></li>
+	<li class="last leaf"><a href="user/' . $userid . '/edit" title="">Edit your Profile</a></li>
+	<li class="last leaf"><a href="user/logout" title="">Logout</a></li>
+</ul>
+</div></div></div>';
+		
+		//bill table html
+		$billhtml = '<div id="cw-all-bills" class="view-id-client_watch_reporting"><h3>Client Watch Bills for ' . $client . '</h3><table id="cw-bill-table" class="tablesorter"><thead><tr><th>Show/Hide on Report</th><th>Importance</th><th>Bill</th><th> Description</th><th>Summary</th><th>Sponsor</th><th>Committees</th><th>Status</th><th>Analysis</th><th>Edit</th><th>Delete</th></tr></thead><tbody>';
+		//let's load user's client watch bills that contain the client/issue selected
+		$query = new EntityFieldQuery();
+		$entities = $query->entityCondition('entity_type', 'node')
+					->propertyCondition('type', 'client_watch')
+					->propertyCondition('uid', $userid)
+					->fieldCondition('field_clients', 'tid', $cl_tid, '=') 
+					->execute();
+		if (!empty($entities['node'])) {
+  			$cwNodes = array_keys($entities['node']);
+			$cwBills = entity_load('node', $cwNodes);
+			foreach ($cwBills as $cw) {
+				//dpm($cw);
+				//get and assign all fields to a variable
+				$title = $cw->title;
+				preg_match('/(\d+)/', $title, $billNum3);
+                $billtype3 = substr($title, 0, 2);
+    			$billnumber3 = $billNum3[0];
+				$baseurl3 = 'http://www.legis.ga.gov/legislation/en-US/Display/20172018/';
+    			$url3 = $baseurl3 . $billtype3 . '/' . $billnumber3;
+				$importance = $cw->field_importance[$cw->language][0]['value'];
+				$descrip = $cw->field_billdescrip[$cw->language][0]['value'];
+				$summary = $cw->field_descrip[$cw->language][0]['value'];
+				$sponsor = $cw->field_sponsor[$cw->language][0]['value'];
+				$committee = $cw->field_committee[$cw->language][0]['safe_value'];
+				$status = $cw->field_status[$cw->language][0]['value'];
+				$analysis = $cw->body[$cw->language][0]['safe_value'];
+				
+				//build bill HTML lines
+				$billhtml .= '<tr><td>Placeholder for checkboxes</td><td class="views-field-field-importance">' . $importance . '</td><td><a href="' . $url3 . '">' . $cw->title . '</a></td><td>' . $descrip . '</td><td class="views-field-field-descrip">' . $summary . '</td><td>' . $sponsor . '</td><td>' . $committee . '</td><td>' . $status . '</td><td>' . $analysis . '</td><td><a href="node/' . $cw->nid . '/edit">Edit</a></td><td><a href="node/' . $cw->nid . '/delete">Delete</a></td></tr>';
+			}
+		}
+		
+		//concat html into singular html item to return.
+		$html = $menuhtml . $termslistinghtml . '</ul></div>' . $billhtml . '</tbody></table></div>';
+	}
+	else {
+		//no permissions message
+		$html = 'You are not subscribed to Client Watch services.  Please contact Georgia Lobby if you feel this is an error or to upgrade your contract to include this valuable service!';
+	}*/
+	return $html;
+}

@@ -1,0 +1,3456 @@
+<?php
+
+/**
+ *	Development copy.
+ *
+ *  This module will handle automatic node creation from a notice node, triggering
+ *  subscriptions additions when certain user actions are taken, control the order
+ *  in which certain sub routines happen and various other functions/processes not
+ *  handled by Subscriptions, Rules or Feeds.
+ */
+
+// Include Composer autoloader if not already done.
+include 'sites/all/libraries/composer/vendor/autoload.php';
+
+	/*
+	 * Changes "save" to "send" on notice creation
+	 */
+	function galobby_watch_form_alter(&$form, &$form_state, $form_id) {
+		//dpm($form_id);
+		 if($form_id == 'notice_node_form' || $form_id == 'government_watch_notice_node_form' || $form_id == 'old_notice_node_form') {
+			$form['actions']['submit'] = array('#type' => 'submit', '#value' => t('Send'), '#submit' => array('node_form_submit'));
+			unset($form['actions']['preview']);
+			
+			$form['#validate'][] = 'galobby_watch_custom_bwgw_notice_validate';
+		}
+		if($form_id == 'taxonomy_form_term')  {
+			$form['actions']['submit']['#submit'][] = 'galobby_watch_custom_taxa_submit';
+		}
+		if($form_id == 'client_watch_node_form') {
+			$form['title']['#required'] = FALSE;
+			//$form['actions']['submit']['#submit'][] = 'galobby_watch_custom_cw_submit';
+		}
+		if($form_id == 'contracts_node_form') {
+			$form['#validate'][] = 'galobby_watch_custom_contracts_validate';
+		}
+		if($form_id == 'custom_search_blocks_form_1')  {
+			$form['actions']['submit']['#submit'][] = 'galobby_watch_custom_bill_search_submit';
+		}
+		
+		if($form_id == 'subscriptions_page_form') {
+
+			$currentUid = $form['uid']['#value'];
+			$currentUser = user_load($currentUid);
+			if (in_array('Bundled Subscription User', array_values($currentUser->roles)) || in_array('administrator', array_values($currentUser->roles)) || in_array('Pamela', array_values($currentUser->roles))  || in_array('Client Watch Team User', array_values($currentUser->roles))) {
+				$form['8'][2] = array(
+					'#type' => 'textfield',
+					'#size' => 25,
+					'#title' => 'Code Watch keyword entry',
+				);
+			}
+			
+			if (in_array('Bundled Subscription User', array_values($currentUser->roles)) || in_array('Bill Watch User', array_values($currentUser->roles)) || in_array('administrator', array_values($currentUser->roles)) || in_array('Pamela', array_values($currentUser->roles))  || in_array('Client Watch Team User', array_values($currentUser->roles))) {
+				$form['7'][2] = array(
+					'#type' => 'textfield',
+					'#size' => 10,
+					'#title' => 'Bill Watch bill entry',
+				);
+			}
+			
+			if (!in_array('Bill Watch User', array_values($currentUser->roles)) && !in_array('Bundled Subscription User', array_values($currentUser->roles)) && !in_array('administrator', array_values($currentUser->roles)) && !in_array('Pamela', array_values($currentUser->roles)) && !in_array('Client Watch Team User', array_values($currentUser->roles))) {
+				$form['7'][0] = array(
+					'#markup' => 'You are not subscribed to this service. Please contact Georgia Lobby to upgrade.'
+				);
+			}
+			if (!in_array('Bill Watch User', array_values($currentUser->roles)) && !in_array('Bundled Subscription User', array_values($currentUser->roles)) && !in_array('administrator', array_values($currentUser->roles)) && !in_array('Pamela', array_values($currentUser->roles)) && !in_array('Board Watch User', array_values($currentUser->roles)) && !in_array('Client Watch Team User', array_values($currentUser->roles))) {
+				$form['5'][0] = array(
+					'#markup' => 'You are not subscribed to this service. Please contact Georgia Lobby to upgrade.'
+				);
+			}
+			if (!in_array('Bundled Subscription User', array_values($currentUser->roles)) && !in_array('administrator', array_values($currentUser->roles)) && !in_array('Pamela', array_values($currentUser->roles)) && !in_array('Client Watch Team User', array_values($currentUser->roles))) {
+				$form['8'][0] = array(
+					'#markup' => 'You are not subscribed to this service. Please contact Georgia Lobby to upgrade.'
+				);
+			}
+			if (!in_array('Government Watch User', array_values($currentUser->roles)) && !in_array('Bundled Subscription User', array_values($currentUser->roles)) && !in_array('administrator', array_values($currentUser->roles)) && !in_array('Pamela', array_values($currentUser->roles)) && !in_array('Client Watch Team User', array_values($currentUser->roles))) {
+				$form['6'][0] = array(
+					'#markup' => 'You are not subscribed to this service. Please contact Georgia Lobby to upgrade.'
+				);
+			}
+			
+		}
+	}
+
+	/*
+	 * Custom handlers - 1st redirects term additions based on vocab
+	 * 2nd redirects CW user to main CW page
+	 * 3rd validates user values entered for matching email domain and empty required values
+	 */
+	
+	function galobby_watch_custom_bill_search_submit($form, &$form_state) {
+		$bill = $form_state['values']['custom_search_blocks_form_1'];
+		if ($bill != NULL) {
+			preg_match('/([hHsS][bBrR])/', $bill, $billPre);
+	        preg_match('/(\d+)/', $bill, $billNum);
+    	    $billtype = $billPre[0];
+        	$billtype = strtoupper($billtype);
+	        $billnumber = $billNum[0];
+    	    $bill = $billtype . $billnumber;
+        	$nodes = node_load_multiple(NULL, array("title" => $bill, "type" => 'bill_testing'));
+ 	        $billNode = current($nodes);
+    	    if ($billNode != NULL) {
+				$path = 'node/' . $billNode->nid;
+				$form_state['redirect'] = $path;
+			}
+			else {
+				dpm("The bill you searched for was not found.  Please check the bill syntax (i.e., 'HB1') and try again.");
+			}
+		}
+		else {
+			dpm("The bill you searched for was not found.  Please check the bill syntax (i.e., 'HB1') and try again.");
+		}
+	}
+	
+	
+	function galobby_watch_custom_taxa_submit($form, &$form_state)  {
+		global $user;
+		$uid = $user->uid;
+		//if client watch, redirect to client watch report
+		if ($form_state['values']['vid'] == 3) {
+			$path = 'cw-landing';
+		}
+		//if anything else, redirect to subs pg
+		else {
+			$path = 'user/' . $uid . '/subscriptions/taxa';
+		}
+		taxonomy_form_term_submit($form, $form_state);
+		$form_state['redirect'] = $path;
+	}
+
+	/* This function appears to not be used.  Commenting out on Aug 25th, 2017, LT 
+	function galobby_watch_custom_notice_validate($form, &$form_state)  {
+		if ($form['field_boardcommittee']['und']['#value'] == NULL && $form['field_govtdept']['und']['#value'] == NULL) {
+			if ($form_state['field_select_category']['und']['#value'] == 'boardnote') {
+				form_set_error('field_boardcommittee', 'A committee must be selected for a Board Watch notice.');
+			}
+			elseif ($form_state['field_select_category']['und']['#value'] == 'govtnote') {
+				form_set_error('field_govtdept', 'A department must be selected for a Government Watch notice.');
+			}
+			form_set_error('field_boardcommittee', 'A committee or department must be selected for a notice.');
+		}
+		$startTime = $form['field_starts_time']['und']['0']['#value']['value']['time'];
+		$startDate = substr($form_state['values']['field_starts']['und']['0']['value'], 0, 10);
+		$endTime = $form['field_ends_time']['und']['0']['#value']['value']['time'];
+		$endDate = substr($form_state['values']['field_ends']['und']['0']['value'], 0, 10);
+		
+		if (strtotime($startDate) < strtotime('00:00:00')) {
+			form_set_error('field_starts', 'A valid date must not be in the past.');
+		}
+		if (strtotime($endDate) < strtotime('00:00:00')) {
+			form_set_error('field_ends', 'A valid date must not be in the past.');
+		}
+		
+		preg_match_all('/(\d+)/', $startTime, $startArr);
+		preg_match_all('/(\d+)/', $endTime, $endArr);
+		preg_match_all('/([aApP][mM])/', $startTime, $startampm);
+		preg_match_all('/([aApP][mM])/', $endTime, $endampm);	
+		
+		$starthour = $startArr[0][0];
+		$startmin = $startArr[0][1];
+		$endhour = $endArr[0][0];
+		$endmin = $endArr[0][1];
+		
+		if ($startampm == NULL) {
+		//set an error if no am/pm is provided
+			form_set_error('field_starts_time', 'A valid time must have am/pm defined.');
+		}
+		if ($endampm == NULL) {
+		//set an error if no am/pm is provided
+			form_set_error('field_ends_time', 'A valid time must have am/pm defined.');
+		}
+		
+		if ($startampm[0][0] == 'pm' && $starthour != '12') {
+			// EDT 16 instead of 12 to account for UTC -4
+			// EST 17
+			if (strtotime($startDate) < strtotime('2016-03-13')) {
+				$starthour = $starthour + 17;
+			}
+			else {
+				$starthour = $starthour + 16;
+			}
+		}
+		elseif ($startampm[0][0] == 'am' && $starthour == '12' ) {
+			// EDT 4 to account for UTC -4
+			// EST 05
+			if (strtotime($startDate) < strtotime('2016-03-13')) {
+				$starthour = '05';
+			}
+			else {
+				$starthour = '04';
+			}
+		}
+		elseif ($startampm[0][0] == 'am' || $starthour == '12' ) {
+			// EDT 4 to account for UTC -4
+			// EST 5
+			if (strtotime($startDate) < strtotime('2016-03-13')) {
+				$starthour = $starthour + 5;
+			}
+			else {
+				$starthour = $starthour + 4;
+			}
+		}
+		if ($endampm[0][0] == 'pm' && $endhour != '12') {
+			// EDT 16 instead of 12 to account for UTC -4
+			// EST 17
+			if (strtotime($endDate) < strtotime('2016-03-13')) {
+				$endhour = $endhour + 17;
+			}
+			else {
+				$endhour = $endhour + 16;
+			}
+		}
+		elseif ($endampm[0][0] == 'am' && $endhour == '12' ) {
+			// EDT 4 to account for UTC -4
+			// EST 5
+			if (strtotime($endDate) < strtotime('2016-03-13')) {
+				$endhour = '05';
+			}
+			else {
+				$endhour = '04';
+			}
+		}
+		elseif ($endampm[0][0] == 'am' || $endhour == '12' ) {
+			// EDT 4 to account for UTC -4
+			// EST 5
+			if (strtotime($endDate) < strtotime('2016-03-13')) {
+				$endhour = $endhour + 5;
+			}
+			else {
+				$endhour = $endhour + 4;
+			}
+		}
+		
+		if ($startampm[0][0] == 'PM' && $starthour != '12') {
+			// EDT 16 instead of 12 to account for UTC -4
+			// EST 17
+			if (strtotime($startDate) < strtotime('2016-03-13')) {
+				$starthour = $starthour + 17;
+			}
+			else {
+				$starthour = $starthour + 16;
+			}
+		}
+		elseif ($startampm[0][0] == 'AM' && $starthour == '12' ) {
+			// EDT 4 to account for UTC -4
+			// EST 5
+			if (strtotime($startDate) < strtotime('2016-03-13')) {
+				$starthour = '05';
+			}
+			else {
+				$starthour = '04';
+			}
+		}
+		elseif ($startampm[0][0] == 'AM') {
+			// EDT 4 to account for UTC -4
+			// EST 5
+			if (strtotime($startDate) < strtotime('2016-03-13')) {
+				$starthour = $starthour + 5;
+			}
+			else {
+				$starthour = $starthour + 4;
+			}
+		}
+		if ($endampm[0][0] == 'PM' && $endhour != '12') {
+			// EDT 16 instead of 12 to account for UTC -4
+			// EST 17
+			if (strtotime($endDate) < strtotime('2016-03-13')) {
+				$endhour = $endhour + 17;
+			}
+			else {
+				$endhour = $endhour + 16;
+			}
+		}
+		elseif ($endampm[0][0] == 'AM' && $endhour == '12' ) {
+			// EDT 4 to account for UTC -4
+			// EST 5
+			if (strtotime($endDate) < strtotime('2016-03-13')) {
+				$endhour = '05';
+			}
+			else {
+				$endhour = '04';
+			}
+		}
+		elseif ($endampm[0][0] == 'AM') {
+			// EDT 4 to account for UTC -4
+			// EST 5
+			if (strtotime($endDate) < strtotime('2016-03-13')) {
+				$endhour = $endhour + 5;
+			}
+			else {
+				$endhour = $endhour + 4;
+			}
+		}
+
+		if (strlen($starthour) <= 1) {
+			$starthour = '0' . $starthour;
+		}
+		if (strlen($endhour) <= 1) {
+			$endhour = '0' . $endhour;
+		}
+		if ($starthour >= 24) {
+			$starthour = $starthour - 24;
+		}
+		if ($endhour >= 24) {
+			$endhour = $endhour - 24;
+		}
+
+		$formattedstarttime = $startDate . ' ' . $starthour . ':' . $startmin . ':00';
+		$formattedendtime = $endDate . ' ' . $endhour . ':' . $endmin . ':00';
+		$form_state['values']['field_starts_time']['und']['0']['value'] = $formattedstarttime;
+		$form_state['values']['field_ends_time']['und']['0']['value'] = $formattedendtime;
+	} */
+	
+	//manually change the form_state data to what it should be based on form input values - Changes made 08/25/2017 by LT
+	function galobby_watch_custom_bwgw_notice_validate($form, &$form_state)  {
+		//dpm($form_state);
+		//dpm($form);
+		
+		//we don't need to use date1 field anymore but we can't delete it from the node because we need to preserve old data in field
+		$form_state['values']['field_date1']['und']['0']['value'] = NULL;
+		$form_state['values']['field_date1']['und']['0']['value2'] = NULL;
+		$form_state['values']['field_date1']['und']['0']['timezone'] = NULL;
+		$form_state['values']['field_date1']['und']['0']['offset'] = NULL;
+		$form_state['values']['field_date1']['und']['0']['offset2'] = NULL;
+		$form_state['values']['field_date1']['und']['0']['show_todate'] = NULL;
+		$form_state['values']['field_date1']['und']['0']['all_day'] = NULL;
+		
+		//if "do not use date" is true, set all date/time fields, and notes fields, to NULL
+		if($form_state['values']['field_use_date']['und']['0']['value'] == 1 ) {
+			
+			$form_state['values']['field_starts']['und']['0']['value'] = NULL;
+			$form_state['values']['field_starts']['und']['0']['value2'] = NULL;
+			$form_state['values']['field_starts']['und']['0']['timezone'] = NULL;
+			$form_state['values']['field_starts']['und']['0']['offset'] = NULL;
+			$form_state['values']['field_starts']['und']['0']['offset2'] = NULL;
+			$form_state['values']['field_starts']['und']['0']['show_todate'] = NULL;
+			
+			$form_state['values']['field_starts_time']['und']['0']['value'] = NULL;
+			$form_state['values']['field_starts_time']['und']['0']['value2'] = NULL;
+			$form_state['values']['field_starts_time']['und']['0']['timezone'] = NULL;
+			$form_state['values']['field_starts_time']['und']['0']['offset'] = NULL;
+			$form_state['values']['field_starts_time']['und']['0']['offset2'] = NULL;
+			$form_state['values']['field_starts_time']['und']['0']['show_todate'] = NULL;
+			
+			$form_state['values']['field_ends']['und']['0']['value'] = NULL;
+			$form_state['values']['field_ends']['und']['0']['value2'] = NULL;
+			$form_state['values']['field_ends']['und']['0']['timezone'] = NULL;
+			$form_state['values']['field_ends']['und']['0']['offset'] = NULL;
+			$form_state['values']['field_ends']['und']['0']['offset2'] = NULL;
+			$form_state['values']['field_ends']['und']['0']['show_todate'] = NULL;
+			
+			$form_state['values']['field_ends_time']['und']['0']['value'] = NULL;
+			$form_state['values']['field_ends_time']['und']['0']['value2'] = NULL;
+			$form_state['values']['field_ends_time']['und']['0']['timezone'] = NULL;
+			$form_state['values']['field_ends_time']['und']['0']['offset'] = NULL;
+			$form_state['values']['field_ends_time']['und']['0']['offset2'] = NULL;
+			$form_state['values']['field_ends_time']['und']['0']['show_todate'] = NULL;
+			
+			$form_state['values']['field_datestart']['und']['0']['value'] = NULL;
+			
+			$form_state['values']['field_dateend']['und']['0']['value'] = NULL;
+		}
+		
+		//if there is no start time, then set the extra start time's date field to NULL... 
+		// unfortunately, there is no way to have a Drupal time object without a date... so if the time is removed
+		// it becomes an "all day" date object by default... this way, we can test to see if the form input is blank
+		// and if so, remove the date from the field so the field becomes NULL
+		if($form['field_starts_time']['und']['0']['#value']['value']['time'] == NULL) {
+			$form_state['values']['field_starts_time']['und']['0']['value'] = NULL;
+			$form_state['values']['field_starts_time']['und']['0']['value2'] = NULL;
+			$form_state['values']['field_starts_time']['und']['0']['timezone'] = NULL;
+			$form_state['values']['field_starts_time']['und']['0']['offset'] = NULL;
+			$form_state['values']['field_starts_time']['und']['0']['offset2'] = NULL;
+			$form_state['values']['field_starts_time']['und']['0']['show_todate'] = NULL;
+		}
+		
+		//if there is no end time, then set the extra end time's date field to NULL
+		if($form['field_ends_time']['und']['0']['#value']['value']['time'] == NULL) {
+			$form_state['values']['field_ends_time']['und']['0']['value'] = NULL;
+			$form_state['values']['field_ends_time']['und']['0']['value2'] = NULL;
+			$form_state['values']['field_ends_time']['und']['0']['timezone'] = NULL;
+			$form_state['values']['field_ends_time']['und']['0']['offset'] = NULL;
+			$form_state['values']['field_ends_time']['und']['0']['offset2'] = NULL;
+			$form_state['values']['field_ends_time']['und']['0']['show_todate'] = NULL;
+		}
+		
+		//set form error if the start date/time is after the end date/time
+		$startdate = new DateTime($form_state['values']['field_starts']['und']['0']['value']);
+		$startstamp = $startdate->getTimestamp();
+		
+		$enddate = new DateTime($form_state['values']['field_ends']['und']['0']['value']);
+		$endstamp = $enddate->getTimestamp();
+		
+		$stimedate = new DateTime($form_state['values']['field_starts_time']['und']['0']['value']);
+		$stimestamp = $stimedate->getTimestamp();
+		
+		$etimedate = new DateTime($form_state['values']['field_ends_time']['und']['0']['value']);
+		$etimestamp = $etimedate->getTimestamp();
+		
+		if ($startstamp > $endstamp || $stimestamp > $etimestamp) {
+			form_set_error('date', t('Start time is after end time.  Please check the dates listed.'));
+		}
+		
+		/* commented out -8/25/2017 by LT
+		$formValue2date = $form['field_date1']['und']['0']['#value']['value2']['date'];
+		$formValue2time = $form['field_date1']['und']['0']['#value']['value2']['time'];
+		$formValue1time = $form['field_date1']['und']['0']['#value']['value']['time'];
+		$formValue1date = $form['field_date1']['und']['0']['#value']['value']['date'];
+		
+		if ($formValue1date != NULL && $formValue2date != NULL) {
+			if ($formValue1date == $formValue2date && $formValue1time == NULL) {
+					$form['field_date1']['und']['0']['all_day']['#value'] = 1;
+					$form_state['values']['field_date1']['und']['0']['all_day'] = 1;
+					preg_match_all('/(\d+)/', $formValue1date, $dateArr);
+					$formyear = $dateArr[0][2];
+					$formmonth = $dateArr[0][0];
+					$formday = $dateArr[0][1];
+					$formatteddatetime = $formyear . '-' . $formmonth . '-' . $formday . ' 04:00:00';
+					$form_state['values']['field_date1']['und']['0']['value'] = $formatteddatetime;
+					$form_state['values']['field_date1']['und']['0']['value2'] = $formatteddatetime;			
+			}
+			elseif ($formValue1time != NULL && $formValue2time == NULL) {
+					//form_set_error('date', t('An event must have an end date and time.'));
+			}
+			else {
+				preg_match_all('/(\d+)/', $formValue2date, $dateArr);
+				preg_match_all('/(\d+)/', $formValue2time, $timeArr);
+				preg_match_all('/([aApP][mM])/', $formValue2time, $ampm);
+		
+				$formyear = $dateArr[0][2];
+				$formmonth = $dateArr[0][0];
+				$formday = $dateArr[0][1];
+				$formhour = $timeArr[0][0];
+				$formmin = $timeArr[0][1];
+		
+				if ($ampm[0][0] == 'pm' && $formhour != '12') {
+					//16 instead of 12 to account for UTC -4
+					$formhour = $formhour + 16;
+				}
+				elseif ($ampm[0][0] == 'am' || $formhour == '12' ) {
+					//4 to account for UTC -4
+					$formhour = $formhour + 4;
+				}
+				if ($formhour >= 24) {
+					$formhour = $formhour - 24;
+					$formday = $formday + 1;
+				}
+				//add in leading zeros for expected formatting
+				if (strlen($formmonth) <= 1) {
+					$formmonth = '0' . $formmonth;
+				}
+				if (strlen($formday) <= 1) {
+					$formday = '0' . $formday;
+				}
+				if (strlen($formhour) <= 1) {
+					$formhour = '0' . $formhour;
+				}
+		
+				$formatteddatetime = $formyear . '-' . $formmonth . '-' . $formday . ' ' . $formhour . ':' . $formmin . ':00';
+				$form_state['values']['field_date1']['und']['0']['value2'] = $formatteddatetime;
+				$form_state['values']['field_date1']['und']['0']['show_todate'] = 1;
+				$form_state['input']['field_date1']['und']['0']['show_todate'] = 1;
+			}
+		}
+		
+		if ($formValue2date == NULL) {
+				//form_set_error('date', t('An event must have an end date and time.'));
+		}
+		if ($formValue1date	== NULL) {
+			$form_state['values']['field_use_date']['und']['0']['value'] = 1;
+		}*/
+	}
+	
+	function galobby_watch_custom_contracts_validate($form, &$form_state)  {
+		//check num subscribers against the number of linked subscriber entities and create warnings when they don't line up
+		/*$numsubs = $form_state['values']['field_number_subscribers']['und'][0]['value'];
+		$numusers = 0;
+
+		foreach ($form_state['values']['field_subscribers']['und'] as $s) {
+			$u = user_load($s['target_id']);
+			
+			if (!user_is_blocked($u->name)) {
+				$numusers++;
+			}
+		}
+		if ($numusers < $numsubs) {
+			$message = 'There are too few subscribers listed on this contract!  Please edit and add additional users.';
+			drupal_set_message($message,'warning');
+		}
+		
+		if ($numusers > $numsubs) {
+			form_set_error('field_subscribers', t('There are too many subscribers listed on this contract!  You must remove subscribers before saving this contract.'));
+		} */
+	}
+	
+			
+	/**
+	 * Implements hook_date_combo_process_alter().
+	 *
+	 * Force date format
+	 */
+	function galobby_watch_date_combo_process_alter(&$element, &$form_state, $context) {
+		if ($element['#field_name'] == 'field_starts' || $element['#field_name'] == 'field_ends') {
+ 	 		$element['value']['#date_format'] = 'D, M j, Y';
+		}
+	}
+	
+	/* 
+	 * Hook subscriptions_queue_alter to bypass subs module
+	 */
+	function galobby_watch_subscriptions_queue_alter($event) {
+		unset($event);
+		$event = array();
+	}
+	
+	/*
+	 * hook node_postinsert from Hook Post Action module to speed up notice node save.
+	 */
+	function galobby_watch_node_postinsert($node)  {
+
+	}
+	
+	/*
+	 * Hook node_insert... 
+	 */
+	function galobby_watch_node_insert($node)  {
+
+	   if ($node->type == 'notice' || $node->type == 'government_watch_notice') {
+			dpm($node);
+			$nid = $node->nid;
+            $log = "Regular notice: " . $node->title . " is starting to be processed for subscriptions (node insert) at ". date("h:i:sa") . ".";
+            $type = "GA Lobby Notice";
+            watchdog($type, $log, $variables = array(), $severity = WATCHDOG_INFO, $link = NULL);
+			
+			//pull all tids into single array
+			$allTerms1 = array();
+			$keywordsField = $node->field_keywords[$node->language];
+			if ($keywordsField != NULL) {
+				$n = 0;
+				foreach ($keywordsField as $keyArray) {
+					foreach ($keyArray as $keyTerm) {
+						$allTerms1[] = $keyTerm;
+						$n++;
+					}
+				}
+			}
+			$billsField = $node->field_billterms[$node->language];
+			if ($billsField != NULL) {
+				$n = 0;
+				foreach ($billsField as $billArray) {
+					foreach ($billArray as $billTerm) {
+						$allTerms1[] = $billTerm;
+						$n++;
+					}
+				}
+			}
+			$boardField = $node->field_boardcommittee[$node->language];
+			if ($boardField != NULL) {
+				$n = 0;
+				foreach ($boardField as $boardArray) {
+					foreach ($boardArray as $boardTerm) {
+						$allTerms1[] = $boardTerm;
+						$n++;
+					}
+				}
+			}
+			$govtField = $node->field_govtdept[$node->language];
+			if ($govtField != NULL) {
+				$n = 0;
+				foreach ($govtField as $govtArray) {
+					foreach ($govtArray as $govtTerm) {
+						$allTerms1[] = $govtTerm;
+						$n++;
+					}
+				}
+			}
+			
+            $allTerms = array_unique($allTerms1);
+            $allTerms1 = NULL; //free memory
+            unset($allTerms1); //free memory
+            
+			$special = FALSE; //Test committees - 11970 and 11974
+                              //Special committee - 18572
+                              //All Board Watch committee - 139
+							 //All Gov't Watch dept - 144
+            
+            if (in_array("11970", $allTerms) || in_array("11974", $allTerms)) {
+              $special = TRUE;
+              $userids = array(
+	                   // 1 => '1',
+						/*2 => '2',
+						3 => '5',
+						4 => '22004',
+						5 => '20741',
+						6 => '20268',
+						7 => '218',
+						8 => '22788',*/
+                        );
+               }
+            elseif (in_array("18572", $allTerms)) {
+             	$special = TRUE;
+                $userids = variable_get('mail_retry_array');
+				if ($userids == NULL) {
+                       $userids = array(
+	                    1 => '1',
+						2 => '2');
+            		}
+            		sort($userids);
+					variable_set('mail_retry_array', array(
+	                    1 => '1',
+						2 => '2'));
+				}
+			
+            elseif (in_array("139", $allTerms)) {
+              $special = TRUE;
+              $singleTid = 139;
+              $usersForSubs = db_query('SELECT DISTINCT recipient_uid FROM subscriptions WHERE value = :single_tid', array(':single_tid' => $singleTid));
+              foreach ($usersForSubs as $userid) {
+                  $userids[] = $userid->recipient_uid;
+            }
+            sort($userids); 
+            }
+
+			elseif (in_array("144", $allTerms)) {
+              $special = TRUE;
+              $singleTid = 144;
+              $usersForSubs = db_query('SELECT DISTINCT recipient_uid FROM subscriptions WHERE value = :single_tid', array(':single_tid' => $singleTid));
+              foreach ($usersForSubs as $userid) {
+                  $userids[] = $userid->recipient_uid;
+            }
+            sort($userids); 
+            }
+            
+			//process array for subs and write them to subscriptions_queue
+			foreach ($allTerms as $singleTid) {
+				if ($special == FALSE) {
+					$usersForSubs = db_query('SELECT DISTINCT recipient_uid FROM subscriptions WHERE value = :single_tid', array(':single_tid' => $singleTid));
+					foreach ($usersForSubs as $user1) {
+						$loaded = db_query('SELECT name FROM users WHERE uid = :uid', array(':uid' => $user1->recipient_uid));
+						foreach ($loaded as $username) {
+							$name1 = $username->name;
+						}
+						$tableSubs = 'subscriptions_queue';
+						$recordSubs = new stdClass();
+						$recordSubs->uid = $user1->recipient_uid;
+						$recordSubs->name = $name1;
+						$recordSubs->module = 'node';
+						$recordSubs->field = 'tid';
+						$recordSubs->value = $singleTid;
+						$recordSubs->author_uid = 1;
+						$recordSubs->send_interval = 1;
+						$recordSubs->digest = -1;
+						$recordSubs->load_args = $node->nid;
+						$recordSubs->load_function = 'subscriptions_content_load_node';
+						$recordSubs->is_new = 1;
+						$recordSubs->last_sent = 0;
+						$recordSubs->suspended = 0;
+						drupal_write_record($tableSubs, $recordSubs);
+					}
+				}
+				else {   
+					foreach ($userids as $user1) {
+						$loaded = db_query('SELECT name FROM users WHERE uid = :uid', array(':uid' => $user1));
+						foreach ($loaded as $username) {
+							$name1 = $username->name;
+						}
+						$tableSubs = 'subscriptions_queue';
+						$recordSubs = new stdClass();
+						$recordSubs->uid = $user1;
+						$recordSubs->name = $name1;
+						$recordSubs->module = 'node';
+						$recordSubs->field = 'tid';
+						$recordSubs->value = $singleTid;
+						$recordSubs->author_uid = 1;
+						$recordSubs->send_interval = 1;
+						$recordSubs->digest = -1;
+						$recordSubs->load_args = $node->nid;
+						$recordSubs->load_function = 'subscriptions_content_load_node';
+						$recordSubs->is_new = 1;
+						$recordSubs->last_sent = 0;
+						$recordSubs->suspended = 0;
+						drupal_write_record($tableSubs, $recordSubs);
+					}
+				}
+			}
+
+            $recordSubs = NULL; //free memory
+            unset($recordSubs); //free memory
+            $allTerms = NULL; //free memory
+            unset($allTerms); //free memory
+            $usersForSubs = NULL; //free memory
+            unset($UsersForSubs); //free memory
+            $loaded = NULL; //free memory
+            unset($loaded); //free memory
+            
+            $log = "Regular notice: " . $node->title . " is finished being processed for subscriptions (node insert) at ". date("h:i:sa") . ".";
+            $type = "GA Lobby Notice";
+            watchdog($type, $log, $variables = array(), $severity = WATCHDOG_INFO, $link = NULL);
+			//dpm($node);
+		}
+	}
+
+	/*  
+	 * Function pulls in text from full text PDF on GA leg. site.  
+	 * Needs cleaned up URL of full text PDF and initialized PDF2Text object ($a). 
+	 */
+	function galobby_watch_fulltext_importer($cleanURL, $a, $bt, $bn) {
+		if (@file_get_contents($cleanURL)) {
+		  $pdf = $a->parseFile($cleanURL);
+          $text = $pdf->getText();
+        }
+        else
+        {
+          $text = " ";
+		  $log = "WARNING - " . $cleanURL . " not found on state website for " . $bt . $bn . ".";
+		  $type = "GA Lobby Cron";
+		  watchdog($type, $log, $variables = array(), $severity = WATCHDOG_WARNING, $link = NULL);
+        }
+        return $text;		
+	}
+
+	/*
+	 * Function searches an imported HTML dom object for a given string and returns the needed item depending on the string.
+	 */
+	function galobby_watch_find_item($string, $html2)  {
+		$int = 0;
+		$itemBars = $html2->find('div.itemBar b i');
+		foreach ($itemBars as $itemBar)  {
+			if ($itemBar == $string)  {
+				if($string == '<i>First Reader Summary</i>')  {
+					$item = $html2->find('div.item', $int);
+					return $item;
+				}
+				if($string == '<i>Sponsored By</i>') {
+					$item = $html2->find('div.item', $int)->first_child()->first_child()->innertext;
+					return $item;
+				}
+				$item = $html2->find('div.item', $int)->first_child();
+				return $item;
+			}
+			else  {
+				$int++;
+			}
+		}
+	}
+			
+	/*
+	 * Function to compare listed bills in body field to existing bills, replace short bill with long bill title, tag notice nodes with bill terms and keywords
+	 */
+	function galobby_watch_compare_bills($node) {
+		$bodyStr = $node->body[$node->language][0]['value'];
+		// Change RegEx to only match BillTypeBillNumber with no space or anything else	
+		preg_match_all('/([hHsS][bBrR]\d+)/', $bodyStr, $matches);	
+		foreach($matches as $matches3) {
+			foreach($matches3 as $singleMatch3) {
+				$billMatches[] = $singleMatch3;
+			}
+		}
+		if($billMatches != NULL) {
+			$matches1[] = array_unique($billMatches);
+			$noticeKeyInt = 0;
+			$noticeBillInt = 0;	
+			if (!empty($matches1)) {	
+				foreach($matches1 as $matches2) {
+				foreach($matches2 as $match) {
+					if($match != NULL) {
+						//if there are bills, let's load them and pull off the terms
+						$query = new EntityFieldQuery();
+						$entities = $query->entityCondition('entity_type', 'node')
+							->propertyCondition('type', 'bill_testing')
+							->propertyCondition('title', $match)
+							->execute();
+						if (!empty($entities['node'])) {
+  							$billNode = node_load(current(array_keys($entities['node'])));
+							$billLongTitle = $billNode->field_billdescrip[$billNode->language][0]['value'];
+			   				//get bill term for tagging
+			   				$billterm = $billNode->field_billterms[$billNode->language][0]['tid'];
+							if (isset($billNode->field_keywords[$billNode->language][0])) {
+								$keywordsField = db_query('SELECT keyword FROM galobby_keywords WHERE bill_term = :bill_term', array(':bill_term' => $billterm));
+								if ($keywordsField != NULL) {
+									foreach ($keywordsField as $keyArray) {
+										foreach ($keyArray as $keyTerm) {
+											if ($keyTerm != NULL) {
+												$tidsToAdd[] = $keyTerm;
+											}
+										}
+									}
+									if ($tidsToAdd != NULL) {
+										foreach ($tidsToAdd as $singleTid) {
+											//add keywords to notice
+											$node->field_keywords[$node->language][$noticeKeyInt]['tid'] = $singleTid;
+											$noticeKeyInt++;
+										}
+									}
+								}
+							}
+							//add bill terms to notice - code added by Joe to check for NULL billterm
+							if ($billterm == NULL) {				
+								$errmessage = 'WARNING - bill term ' . $billNid . ' not found while tagging notice ' . $node->title . ".";
+								drupal_set_message($errmessage,'warning'); 
+							}
+							else {
+								$node->field_billterms[$node->language][$noticeBillInt]['tid'] = $billterm;
+								$noticeBillInt++;
+							}	
+						}
+                        else
+                        {
+                          $billnotexist = "1";
+                        }
+						preg_match('/([hHsS][bBrR])/', $match, $billPre);
+						preg_match('/(\d+)/', $match, $billNum);
+    					$billtype = $billPre[0];
+    					$billtype = strtolower($billtype);
+    					$billnumber = $billNum[0];
+                        // Add code to check for wrong long bill title on non-existant bill references
+                        if ($billnotexist == "1") {
+                          $billLongTitle = strtoupper($billtype) . " " . $billnumber;
+                          // Turn this back off to fix bug where regular bills follow anticipatory 2-12-16 Joe
+                          $billnotexist = "0";  
+                        }
+                        $billURL = '<a href="http://galobby.com/bill/' . $billtype . $billnumber . '">' . $billLongTitle . '</a>';
+                        $pattern = '/\b(?<!\/)' . $match . '\b/';
+						$bodyStr = preg_replace($pattern, $billURL, $bodyStr);					}
+				}
+				}
+			}
+			$node->body[$node->language][0]['value'] = $bodyStr;
+		}
+	}
+
+	/*  
+	 * Function creates bill term from given string
+	 */
+	function galobby_watch_create_bill_term($newTerm) {
+		$term = new stdClass();
+		// Check to make sure term is 250 characters < 255
+		$newTerm = substr($newTerm, 0, 250); 
+		$term->name = $newTerm;
+		$term->vid = 7; 
+		taxonomy_term_save($term);
+		$tid = $term->tid;
+		return $tid;
+	}
+
+	/*  
+	 * Function updates bill term from given string
+	 */
+	function galobby_watch_update_bill_term($newTermName, $tid) {
+		$term = taxonomy_term_load($tid);
+		if ($term->vid == 7) {
+		    // Check to make sure term is 250 characters < 255
+		    $newTermName = substr($newTermName, 0, 250); 
+			$term->name = $newTermName;
+			$term->vid = 7; 
+			taxonomy_term_save($term);
+		}
+	}
+	
+	/*
+	 * Function checks the status of the "do not use date on notice" field for notices and then removes date
+	 * field values. Next handles copy of bill data to Client Watch bill.  Last checks and handles workflow for 
+	 * contract and user creation.
+	 */
+	function galobby_watch_node_presave($node)  {
+	
+		if ($node->type == 'notice' || $node->type == 'government_watch_notice') {
+			// Diagnostic information
+			//dpm($node);
+			$log = "INFO " . date("h:i:sa") . " - Beginning of regular notice processing for bill references (node pre-save) for " . $node->title . "...";
+			$type = "GA Lobby Notice";
+			watchdog($type, $log, $variables = array(), $severity = WATCHDOG_INFO, $link = NULL);
+			
+			//copy the body content to the field_content_copy so that we can later use that to duplicate the notice - added 02/12/2018 LT
+			$node->field_content_copy['und'][0]['value'] = $node->body['und'][0]['value'];
+			$node->field_content_copy['und'][0]['format'] = 'plain_text';
+       
+			$notUseDate = $node->field_use_date[$node->language][0]['value'];
+				if ($notUseDate)  {
+					unset($node->field_date1);
+					$node->field_dateend[$node->language][0]['value'] = NULL;
+					$node->field_dateendtext[$node->language][0]['value'] = NULL;
+				}
+				elseif ($node->field_date1 == NULL  || $node->field_date1[$node->language][0]['value'] == NULL)  {
+					unset($node->field_use_date);
+					$startTime = substr($node->field_starts_time['und']['0']['value'], 11);
+					$startDate = substr($node->field_starts['und']['0']['value'], 0, 10);
+					$endTime = substr($node->field_ends_time['und']['0']['value'], 11);
+					$endDate = substr($node->field_ends['und']['0']['value'], 0, 10);
+					
+					if ($startTime != NULL && $endTime != NULL && $startDate != NULL && $endTime != NULL) {
+						$node->field_date1[$node->language][0]['value'] = $startDate . ' ' . $startTime;
+						$node->field_date1[$node->language][0]['value2'] = $endDate . ' ' . $endTime;
+					}
+				}
+                
+            // Check to see if bill terms are already there.
+            if ($node->field_billterms[$node->language] != NULL) {            
+              $log = "INFO " . date("h:i:sa") . " - Bill terms for " . $node->title . " were found. No need to do it again. Skip processing.";
+              $type = "GA Lobby Notice";
+			  watchdog($type, $log, $variables = array(), $severity = WATCHDOG_INFO, $link = NULL);
+              }
+              else
+              {
+              $log = "INFO " . date("h:i:sa") . " - Bill terms for " . $node->title . " were NOT found, about to process them.";
+              $type = "GA Lobby Notice";
+			  watchdog($type, $log, $variables = array(), $severity = WATCHDOG_INFO, $link = NULL);
+              galobby_watch_compare_bills($node);
+              }
+                               
+			// Diagnostic information
+		    $log = "INFO " . date("h:i:sa") . " - Finished regular notice processing of bill references (node pre-save) for " . $node->title . "...";
+		    $type = "GA Lobby Notice";
+		    watchdog($type, $log, $variables = array(), $severity = WATCHDOG_INFO, $link = NULL);
+		}
+		//Jan 8th 2015 - Client Watch: handle title creation, copy bill data from bill node in database, flag and add subscriptions as needed
+		if ($node->type == 'client_watch') {
+			$type = $node->field_bill_type[$node->language][0]['value'];
+			$num = $node->field_bill_number[$node->language][0]['value'];
+			if ($node->title == NULL) {
+				$billNodeTitle = $type . $num;
+				$node->title = $billNodeTitle;
+			}
+			else {
+				$billNodeTitle = $node->title;
+			}
+			if ($type == NULL || $num == NULL) {
+				preg_match('/([hHsS][bBrR])/', $node->title, $billty);
+				preg_match('/(\d+)/', $node->title, $billnu);
+				$billtype15 = $billty[0];
+    			$billnumber15 = $billnu[0];
+				$node->field_bill_type[$node->language][0]['value'] = $billtype15;
+				$node->field_bill_number[$node->language][0]['value'] = $billnumber15;
+			}
+			$query = new EntityFieldQuery();
+			$entities = $query->entityCondition('entity_type', 'node')
+				->propertyCondition('type', 'bill_testing')
+				->propertyCondition('title', $billNodeTitle)
+				->execute();
+			if (!empty($entities['node'])) {
+				$billNode = node_load(current(array_keys($entities['node'])));
+				$node->field_billdescrip[$node->language][0]['value'] = $billNode->field_billdescrip[$billNode->language][0]['value'];
+				$node->field_billdescrip[$node->language][0]['format'] = 'full_html';
+				$addtobb = $node->field_billboard[$node->language][0]['value'];
+				//if add to Bill Board selected, create a new flag for the related bill on Bill Board
+				if ($addtobb == 'Yes')  {
+					$notAdded = TRUE;
+						if ($billNode->title == $billNodeTitle && $notAdded == TRUE)  {
+							$nidToFlag = $billNode->nid;
+							$uidFlagging = $node->uid;
+							//if bill is already flagged, errors occur so check that bill isn't already flagged before trying to write a new db row for it
+							$flaggedresults = db_query('SELECT uid FROM flagging WHERE entity_id = :entity_id AND fid = :fid', array(':entity_id' => $nidToFlag, ':fid' => 1));
+							foreach($flaggedresults as $flagresult) {
+								if ($flagresult->uid == $uidFlagging) {
+									drupal_set_message('Bill ' . $billNodeTitle . ' is already part of your Bill Board bills.');
+									$notAdded = FALSE;
+								}
+							}
+							if ($notAdded == TRUE) {
+								$tableFlag = 'flagging';
+								$recordFlag = new stdClass();
+								$recordFlag->fid = 1;
+								$recordFlag->entity_type = 'node';
+								$recordFlag->entity_id = $nidToFlag;
+								$recordFlag->uid = $uidFlagging;
+								$recordFlag->sid = 0;
+								drupal_write_record($tableFlag, $recordFlag);
+								$notAdded = FALSE;
+								drupal_set_message('You have added bill ' . $billNodeTitle . ' to your Bill Board bills.');
+							}
+						}
+				}
+				$addtobw = $node->field_bill_watch[$node->language][0]['value'];
+				//if add to Bill Watch selected, create a subscription for the related bill term
+				if ($addtobw == 'Yes')  {
+					$BWNotAdded = TRUE; 
+						$nidToFlag = $billNode->nid;
+						$billTid = $billNode->field_billterms[$billNode->language][0]['tid'];
+						$authorUid = $node->uid;
+						$flaggedresults = db_query('SELECT uid FROM flagging WHERE entity_id = :entity_id AND fid = :fid', array(':entity_id' => $nidToFlag, ':fid' => 3));
+						foreach($flaggedresults as $flagresult) {
+							if ($flagresult->uid == $authorUid) {
+								drupal_set_message('Bill ' . $billNodeTitle . ' is already part of your Bill Watch bills.');
+								$BWNotAdded = FALSE;
+							}
+						}
+						if ($BWNotAdded == TRUE) {
+							//flagging table
+							$tableFlag = 'flagging';
+							$recordFlag = new stdClass();
+							$recordFlag->fid = 3;
+							$recordFlag->entity_type = 'node';
+							$recordFlag->entity_id = $nidToFlag;
+							$recordFlag->uid = $authorUid;
+							$recordFlag->sid = 0;
+							drupal_write_record($tableFlag, $recordFlag);
+							//subs table
+							$tableSubs = 'subscriptions';
+							$recordSubs = new stdClass();
+							$recordSubs->module = 'node';
+							$recordSubs->field = 'tid';
+							$recordSubs->value = $billTid;
+							$recordSubs->recipient_uid = $authorUid;
+							$recordSubs->send_interval = 1;
+							$recordSubs->author_uid = -1;
+							$recordSubs->send_updates = 1;
+							$recordSubs->send_comments = 0;
+							drupal_write_record($tableSubs, $recordSubs);
+							drupal_set_message('You have added bill ' . $billNodeTitle . ' to your Bill Watch bills.');
+						}
+				}
+				$node->field_linkfulltext[$node->language][0]['format'] = 'full_html';
+				$node->field_linkfulltext[$node->language][0]['value'] = $billNode->field_linkfulltext[$billNode->language][0]['value'];
+				$node->field_descrip[$node->language][0]['value'] = $billNode->field_descrip[$billNode->language][0]['value'];
+				$node->field_descrip[$node->language][0]['format'] = 'full_html';
+				$node->field_sponsor[$node->language][0]['value'] = $billNode->field_sponsor[$billNode->language][0]['value'];
+				$node->field_sponsor[$node->language][0]['format'] = 'filtered_html';
+				$node->field_status[$node->language][0]['value'] = $billNode->field_status[$billNode->language][0]['value'];
+				$node->field_status[$node->language][0]['format'] = 'full_html';
+				$node->field_committee[$node->language][0]['value'] = $billNode->field_committee[$billNode->language][0]['value'];
+				$node->field_committee[$node->language][0]['format'] = 'filtered_html';
+			}
+			elseif (empty($entities['node'])) {
+				drupal_set_message('Please check your bill type and bill number. ' . $billNodeTitle . ' may not have been filed in the Georgia Legislature yet.');
+			}
+		}
+		if ($node->type == 'contracts')  {
+			//dpm('node');
+			//dpm($node);
+			
+			$n = 0;
+			$contract = $node;
+			if ($contract->field_services_subscribed != NULL) {
+				while ($n < 5) {
+					if ($contract->field_services_subscribed['und'][$n]['value'] == 'board') {
+						$case = 'board';
+						$board = TRUE;
+						$n++;
+					}
+					if ($contract->field_services_subscribed['und'][$n]['value'] == 'govt') {
+						$case = 'govt';
+						$govt = TRUE;
+						$n++;
+					}
+					if ($contract->field_services_subscribed['und'][$n]['value'] == 'bill') {
+						$case = 'bill';
+						$n++;
+					}
+					if ($contract->field_services_subscribed['und'][$n]['value'] == 'code') {
+						$case = 'bundled';
+						$n++;
+					}
+					if ($contract->field_services_subscribed['und'][$n]['value'] == 'client') {
+						$case = 'bundled';
+						$n++;
+					}
+					if ($contract->field_services_subscribed['und'][$n]['value'] == 'cwteam') {
+						$case = 'cwteam';
+						$n = 6;
+					}
+			
+					else {
+						$n = 6;
+					}
+				}
+			}
+
+			//set up roles for users
+			if ($case == 'cwteam') {
+				$roles = array(2, 14);
+			}
+
+			if ($case == 'bundled') {
+				$roles = array(2, 10);
+			}
+	
+			elseif ($case == 'bill') {
+				$roles = array(2, 9);
+			}
+	
+			elseif ($case == 'board') {
+				$roles = array(2, 6);
+			}
+	
+			elseif ($case == 'govt' && $board) {
+				$roles = array(2, 6, 7);
+			}
+	
+			elseif ($case == 'govt' && !$board) {
+				$roles = array(2, 7);
+			}
+	
+			//get users from the entity field on contract
+			foreach ($contract->field_subscribers['und'] as $u) {
+				$account = user_load($u['target_id']);
+				$combined_sub = 0;
+				$matches = FALSE;
+				//check first for a match of roles... if there's a match, nothing else will happen
+				foreach($account->roles as $oldrole => $urole) {
+					$oldroles[] = $oldrole;
+					if ($urole == 'Client Watch Team User' && $case == 'cwteam') {
+						//do nothing - subs match
+						$matches = TRUE;
+					}
+					elseif ($urole == 'Bundled Subscription User' && $case == 'bundled') {
+						//do nothing - subs match
+						$matches = TRUE;
+					}
+					elseif ($urole == 'Bill Watch User' && $case == 'bill') {
+						//do nothing - subs match
+						$matches = TRUE;
+					}
+					elseif ($urole == 'Board Watch User' && $case == 'board') {
+						$combined_sub++;
+						//do nothing - subs match
+						$matches = TRUE;
+					}
+					if ($urole == 'Government Watch User' && $case == 'govt') {
+						if ($combined_sub && $board) {
+							$matches = TRUE;
+						}
+						if (!$combined_sub && !$board) {
+							$matches = TRUE;
+						}
+					}
+					//was there not a match?  if not, let's remove roles and then add the correct ones.
+					if (!$matches) {
+						galobby_watch_change_roles($account->uid, $roles, $oldroles);
+					}
+				}
+				//set attached users to blocked or active based on status of contract
+				//added Dec. 22 2017 - LT
+				if($node->field_contract_status[$node->language][0]['value'] == 0) {
+					//dpm('contract blocked');
+					$edit = array(
+						'status' => 0,
+					);
+					user_save($account, $edit);
+				}
+				if($node->field_contract_status[$node->language][0]['value'] == 1) {
+					//dpm('contract active');
+					$edit = array(
+						'status' => 1,
+					);
+					user_save($account, $edit);
+				}
+			}	
+			
+			//handle renewal year set up
+			$startDate = $node->field_contract_start_date[$node->language][0]['value'];
+			$renewField = $node->field_renewal_due_date[$node->language][0]['value'];
+			if ($startDate != NULL && $renewField == NULL)  {
+				$startYear = intval(substr($startDate, 0, 4));
+				$restofDate = substr($startDate, 4);
+				$startYear++;
+				$renewDate = $startYear . $restofDate;
+				$node->field_renewal_due_date[$node->language][0]['value'] = $renewDate;
+				$node->field_renewal_due_date[$node->language][0]['timezone'] = 'America/New_York';
+				$node->field_renewal_due_date[$node->language][0]['timezone_db'] = 'America/New_York';
+				$node->field_renewal_due_date[$node->language][0]['date_type'] = 'datetime';
+			}
+		}
+	}
+		
+	/* Old code from MoneyScripts for adding "All" subs to users... Keeping for archival purposes.
+				// add the "All" term subscriptions as necessary
+				if ($result->mpid == 1) {
+					//bundled user mpid 1
+						$tableSubs = 'subscriptions';
+						$recordSubs = new stdClass();
+						$recordSubs->module = 'node';
+						$recordSubs->field = 'tid';
+						$recordSubs->value = '139';
+						$recordSubs->recipient_uid = $newUser->uid;
+						$recordSubs->send_interval = 1;
+						$recordSubs->author_uid = -1;
+						$recordSubs->send_updates = 1;
+						$recordSubs->send_comments = 0;
+						drupal_write_record($tableSubs, $recordSubs);
+					
+						$recordSubs2 = new stdClass();
+						$recordSubs2->module = 'node';
+						$recordSubs2->field = 'tid';
+						$recordSubs2->value = '144';
+						$recordSubs2->recipient_uid = $newUser->uid;
+						$recordSubs2->send_interval = 1;
+						$recordSubs2->author_uid = -1;
+						$recordSubs2->send_updates = 1;
+						$recordSubs2->send_comments = 0;
+						drupal_write_record($tableSubs, $recordSubs2);
+						
+						ms_membership_change_roles($result->uid, $add = array(10), $remove = array(5));
+				}
+				
+				if ($result->mpid == 2) {
+					//board user mpid 2
+						$tableSubs = 'subscriptions';
+						$recordSubs = new stdClass();
+						$recordSubs->module = 'node';
+						$recordSubs->field = 'tid';
+						$recordSubs->value = '139';
+						$recordSubs->recipient_uid = $newUser->uid;
+						$recordSubs->send_interval = 1;
+						$recordSubs->author_uid = -1;
+						$recordSubs->send_updates = 1;
+						$recordSubs->send_comments = 0;
+						drupal_write_record($tableSubs, $recordSubs);
+						
+						ms_membership_change_roles($result->uid, $add = array(6), $remove = array(5));
+				}
+				if ($result->mpid == 3) {		
+					//gov't user mpid 3
+						$tableSubs = 'subscriptions';
+						$recordSubs = new stdClass();
+						$recordSubs->module = 'node';
+						$recordSubs->field = 'tid';
+						$recordSubs->value = '144';
+						$recordSubs->recipient_uid = $newUser->uid;
+						$recordSubs->send_interval = 1;
+						$recordSubs->author_uid = -1;
+						$recordSubs->send_updates = 1;
+						$recordSubs->send_comments = 0;
+						drupal_write_record($tableSubs, $recordSubs);
+						
+						ms_membership_change_roles($result->uid, $add = array(7), $remove = array(5));
+				}
+				if ($result->mpid == 4) {		
+					//bill user mpid 4
+						$tableSubs = 'subscriptions';
+						$recordSubs = new stdClass();
+						$recordSubs->module = 'node';
+						$recordSubs->field = 'tid';
+						$recordSubs->value = '139';
+						$recordSubs->recipient_uid = $newUser->uid;
+						$recordSubs->send_interval = 1;
+						$recordSubs->author_uid = -1;
+						$recordSubs->send_updates = 1;
+						$recordSubs->send_comments = 0;
+						drupal_write_record($tableSubs, $recordSubs);
+						ms_membership_change_roles($result->uid, $add = array(9), $remove = array(5));
+				}
+				}}	*/
+	/**
+	 * Implement hook_mail to send mail */
+	function galobby_watch_mail($key, &$message, $params) {
+		switch($key) {
+			case 'new_user':
+				$message['subject'] = "Georgia Lobby user account has been created for you";
+				$message['body'] = "Hello " . $params['username'] . ",<br /><br /> The administrator at Georgia Lobby has created an account for you. <br /><br /> You may login by going to <a href='http://galobby.com/user'>http://galobby.com/user</a> and entering your <br /><br />username: " . $params['username'] . " or email.<br /><br /> password: " . $params['password'] . "<br /><br /> We highly encourage you to modify your profile to your preferences. This modification will get you the information that you want and no more. Without modification, you will be overwhelmed with information that may not be useful to you. <br /><br />If you need help with this, Georgia Lobby is here to help you. Just call and we will be more than happy to support your efforts. Georgia Lobby provides support 24/7, so please do not hesitate to call.  <br /><br />Please call 770 461 2778 if you need assistance.  <br /><br /> - Georgia Lobby team";
+				$newparam['headers'] = array(
+					'Bcc' => 'office.admin@galobby.com',
+					//'Bcc' => 'lindsey@countryfriedcreative.com',
+				);
+				$message['headers'] += $newparam['headers'];
+				break;
+			case 'new_user_from_old':
+				$message['subject'] = "Georgia Lobby user account has been transferred to you";
+				$message['body'] = "Dear " . $params['username'] . ",<br /><br /> The administrator at Georgia Lobby has transferred " . $params['old_user'] . "'s account to you. You may login by going to <a href='http://galobby.com/user'>http://galobby.com/user</a> and entering your <br /><br />username: " . $params['username'] . " or " . $params['email'] . " <br />and password.<br/><br/>Please reset your password by following this link: " . $params['password'] . " <br /><br /> We highly encourage you to modify your profile to your preferences. The current preferences were set by your predecessor. This modification will get you the information that you want and no more. Without modification, you will get information that you do not desire or more than you desire. <br /><br />If you need help with this, Georgia Lobby is here to help you. Just call and we will be more than happy to support your efforts. Georgia Lobby provides support 24/7, so please do not hesitate to call. <br /><br />Please call 770 461 2778 if you need assistance.  <br /><br /> - Georgia Lobby team";
+				$newparam['headers'] = array(
+					'Bcc' => 'office.admin@galobby.com',
+				);
+				$message['headers'] += $newparam['headers'];
+				break;
+			case 'reactivated_user':
+				$message['subject'] = "Georgia Lobby has reactivated your user account";
+				$message['body'] = "Dear " . $params['username'] . ",<br/><br/>The administrator at Georgia Lobby has reactivated your Georgia Lobby account.<br/><br/>You may now log in by clicking this link or copying and pasting it to your browser: <a href='http://galobby.com/user'>http://galobby.com/user/</a> and log in with your name or email address and your old password. Or you can reset your password by following this link: " . $params['password'] . "<br/><br/>We highly encourage you to modify your profile to your preferences. This modification will get you the information that you want and no more.<br/><br/>If you need help with this, Georgia Lobby is here to help you. Just call us at 770.461.2778 and we will be more than happy to support your efforts. Georgia Lobby provides support 24/7, so please do not hesitate to call.<br/><br/>- Georgia Lobby team";
+				$newparam['headers'] = array(
+					'Bcc' => 'office.admin@galobby.com',
+					'Bcc' => 'lindsey@countryfriedcreative.com',
+				);
+				$message['headers'] += $newparam['headers'];
+				break;
+			/*case 'renewal':
+				$message['subject'] = 'Georgia Lobby subscription due for renewal';
+				$message['body'] = 'Hello ' . $params['firstname'] . ',<br /><br />Your Georgia Lobby subscription will soon be up for renewal.  Do not let this important resource to you for your lobbying effort be disrupted.  Please send your renewal payment by ' . $params['renewalDate'] . ' so that you will have a continuation of services from Georgia Lobby.  Your service with be automatically disconnected on your renewal date, if your payment has not been received.  You may contact Georgia Lobby prior your renewal date, if you believe your payment may be delayed. Georgia Lobby will be happy to intervene, so no disconnect will occur.<br /></br /> It has been a pleasure to serve you this year.  <br /></br />Pamela Adams<br />Georgia Lobby';
+				$log = "GA Lobby renewal message sent.";
+				$type = "GA Lobby Contract Renewal";
+				watchdog($type, $log, $variables = array(), $severity = WATCHDOG_WARNING, $link = NULL);
+				break;*/
+            case 'stuckqueue':
+				$message['subject'] = 'WARNING - the GaLobby.com system is fixing a notice queue problem!';
+				$message['body'] = 'WARNING - The GaLobby.com notice queue encountered a problem with the most recent notice.  The system will attempt to resolve the problem automatically. There will be a short delay and the notice will be sent as soon as it is fixed.';
+				$newparam['headers'] = array(
+					'Bcc' => 'cfc.serverlogs@gmail.com',
+				);
+				$message['headers'] += $newparam['headers'];
+				break;
+			case 'billstatus':
+				$message['subject'] = 'GA Lobby Nightly Bill Status Report';
+				$message['body'] = $params['message'];
+				break;
+		}
+	}
+	
+	/* Notification sent to user updated from UID with new username AND email address - Dec. 2017 by LT
+	 * Notification sent to user reactivated - Added by LT on Dec. 22nd 2017
+	 * hook_user_update(&$edit, $account, $category)
+	 */
+	function galobby_watch_user_update(&$edit, $account, $category) {
+		//dpm($account);
+		
+		if ($category == 'account') {
+    		if ($account->mail != $account->original->mail && $account->name != $account->original->name) {
+				$old_user = $account->original->field_first_name['und']['0']['value'] . ' ' . $account->original->field_last_name['und']['0']['value'];
+				//dpm($old_user);
+				//send reset link for password
+				$password = user_pass_reset_url($account);
+				drupal_mail('galobby_watch', 'new_user_from_old', $account->mail, user_preferred_language($account), array(username => $account->name , password => $password, old_user => $old_user, email => $account->mail), 'office@galobby.com', TRUE);
+			}
+			if ($account->status != $account->original->status && $account->status == 1) {
+				//dpm('changed from blocked to active');
+				$password = user_pass_reset_url($account);
+				drupal_mail('galobby_watch', 'reactivated_user', $account->mail, user_preferred_language($account), array(username => $account->name , password => $password, email => $account->mail), 'office@galobby.com', TRUE);
+			}
+		}
+	}
+	
+	/**
+	 * React to flagging of content - add Bill Watch subs to subscriptions table
+	 * hook_flag_flag($flag, $content_id, $account, $flagging)
+	 */
+	function galobby_watch_flag_flag($flag, $content_id, $account, $flagging) {
+		if ($flagging->flag_name == 'bill_watch_flag') {
+			$notAdded = TRUE;
+			$bill = node_load($flagging->entity_id);
+			$billTid = $bill->field_billterms[$bill->language][0]['tid'];
+			$userUid = $flagging->uid;
+			$subsresults = db_query('SELECT recipient_uid FROM subscriptions WHERE value = :value', array(':value' => $billTid));
+			foreach($subsresults as $subresult) {
+				if ($subresult->recipient_uid == $userUid) {
+					$notAdded = FALSE;
+				}
+			}
+			if ($notAdded == TRUE) {
+				$tableSubs = 'subscriptions';
+				$recordSubs = new stdClass();
+				$recordSubs->module = 'node';
+				$recordSubs->field = 'tid';
+				$recordSubs->value = $billTid;
+				$recordSubs->recipient_uid = $userUid;
+				$recordSubs->send_interval = 1;
+				$recordSubs->author_uid = -1;
+				$recordSubs->send_updates = 1;
+				$recordSubs->send_comments = 0;
+				drupal_write_record($tableSubs, $recordSubs);
+			}
+		}
+		if ($flagging->flag_name == 'client_watch_bills') {
+			$bill = node_load($flagging->entity_id);
+			$billDescrib = $bill->field_billdescrip[$bill->language][0]['value'];
+			$queryCW = new EntityFieldQuery();
+			$entitiesBW = $queryCW->entityCondition('entity_type', 'node')
+				->propertyCondition('type', 'client_watch')
+				->propertyCondition('uid', $flagging->uid)
+				->fieldCondition('field_billdescrip', 'value', $billDescrib, '=')
+				->execute();
+			if (empty($entitiesBW['node'])) {
+				$title = $bill->title;
+				$html3 = new simple_html_dom();
+				$a3 = new PDF2Text();
+				//Pull out bill prefix and number and create URL to pull data from
+				preg_match('/([hHsS][bBrR])/', $title, $billPre3);
+				preg_match('/(\d+)/', $title, $billNum3);
+                //Change 2-10-2016 JD
+                $billtype3 = substr($title, 0, 2);
+    			$billnumber3 = $billNum3[0];
+    			//Updated URL
+				$baseurl3 = 'http://www.legis.ga.gov/legislation/en-US/Display/20172018/';
+    			$url3 = $baseurl3 . $billtype3 . '/' . $billnumber3;
+				//Pull in data and clean it up where needed
+				$html3->load_file($url3);
+				$longTitle = $html3->find('div.ggah1');
+				$fullTextURL = $html3->find('div.ScreenOnly div a');
+				//Clean up bill description for long title usage
+				$billLen = strlen($title)+2;
+ 				$billToDes = $billLen+53;
+   				$shortBill = substr($longTitle[0], 49, $billLen);
+   				$billDes = substr($longTitle[0], $billToDes, -6);
+   				$billTitle = $shortBill . ' - ' . $billDes;
+				$node = new stdClass();
+				$node->type = 'client_watch';
+				if ($title != NULL) {
+					$node->title = $title;
+				}
+				else {
+					$node->title = $shortBill;
+				}
+				$node->language = LANGUAGE_NONE;
+				$node->uid = $flagging->uid;
+				$node->field_billdescrip[$node->language][0]['value'] = $billTitle;
+				$node->field_billdescrip[$node->language][0]['format'] = 'full_html';
+				$node->field_linkfulltext[$node->language][0]['format'] = 'full_html';
+				$node->field_linkfulltext[$node->language][0]['value'] = $fullTextURL;
+				$sponsors = galobby_watch_find_item('<i>Sponsored By</i>', $html3);
+				$committees = galobby_watch_find_item('<i>Committees</i>', $html3);
+				$summary = galobby_watch_find_item('<i>First Reader Summary</i>', $html3);
+				$status = galobby_watch_find_item('<i>Status History</i>', $html3);
+				$node->field_descrip[$node->language][0]['value'] = $summary;
+				$node->field_descrip[$node->language][0]['format'] = 'full_html';
+				$node->field_sponsor[$node->language][0]['value'] = $sponsors;
+				$node->field_sponsor[$node->language][0]['format'] = 'filtered_html';
+				$node->field_status[$node->language][0]['value'] = $status;
+				$node->field_status[$node->language][0]['format'] = 'full_html';
+				$node->field_committee[$node->language][0]['value'] = $committees;
+				$node->field_committee[$node->language][0]['format'] = 'filtered_html';
+				$node->field_bill_type[$node->language][0]['value'] = $billtype3;
+				$node->field_bill_number[$node->language][0]['value'] = $billnumber3;
+				node_save($node);
+				unset($html3);
+                field_cache_clear();
+			}
+		}
+	}
+	
+	/**
+	 * React to unflagging of content - remove Bill Watch subs from subscriptions table
+	 * hook_flag_unflag($flag, $content_id, $account, $flagging)
+	 */
+	function galobby_watch_flag_unflag($flag, $content_id, $account, $flagging) {
+		if ($flagging->flag_name == 'bill_watch_flag') {
+			$delete = FALSE;
+			$bill = node_load($flagging->entity_id);
+			$billTid = $bill->field_billterms[$bill->language][0]['tid'];
+			$userUid = $flagging->uid;
+			$subsresults = db_query('SELECT recipient_uid FROM subscriptions WHERE value = :value', array(':value' => $billTid));
+			foreach($subsresults as $subresult) {
+				if ($subresult->recipient_uid == $userUid) {
+					$delete = TRUE;
+				}
+			}
+			if ($delete == TRUE) {
+				db_query('DELETE FROM subscriptions WHERE value = :value AND recipient_uid = :recipient_uid', array(':value' => $billTid, ':recipient_uid' => $userUid));
+			}
+		}
+	}
+	
+	/**
+	 * Implement hook_taxonomy_term_insert
+	 * At keyword creation, this function will automatically subscribe user to term and return success message.
+	 */
+	function galobby_watch_taxonomy_term_insert($term) {
+		//is term of type keyword?
+		if ($term->vid == 8) {
+			global $user;
+			$uid = $user->uid;
+			$tid = $term->tid;
+			$termName = $term->name;
+			$table = 'subscriptions';
+			$record = new stdClass();
+			$record->module = 'node';
+			$record->field = 'tid';
+			$record->value = $tid;
+			$record->recipient_uid = $uid;
+			$record->send_interval = 1;
+			$record->author_uid = -1;
+			$record->send_updates = 1;
+			$record->send_comments = 0;
+			drupal_write_record($table, $record);
+			drupal_set_message('You have been successfully subscribed to keyword: "' . $termName . '".','status');
+		}
+	}
+
+	/*
+	 * Add cron job to add bill term/keyword associations to galobby_keywords table
+	 */
+	function galobby_watch_tagging_cron() {	
+        $message = "Beginning GA Lobby cron job for QA, Code Watch tagging, and Client Watch status update at " . date("h:i:sa") . ".";
+	    $type = "GA Lobby Cron";
+	    watchdog($type, $message, $variables = array(), $severity = WATCHDOG_NOTICE, $link = NULL);
+    
+        // Check and fix bills that might be missing code watch FIRST PASS
+        // New code, March 8, 2016 to speed up process.
+        // Lets try a single pass first
+
+        $vocab = taxonomy_vocabulary_load('8');
+        //Corrected empty array to FALSE to load everything and not generate error
+        $loadedbills = node_load_multiple(FALSE, array('type' => 'bill_testing'));
+          foreach ($loadedbills as $billNode) {
+             if ( !(isset($billNode->field_keywords[$billNode->language])) )  
+              {
+              $billLongTitle = $billNode->field_billdescrip[$billNode->language][0]['value'];
+              if ((substr($billLongTitle, -8) != "Website."))
+                {
+				$keywordterms = rules_autotag_extract($billNode->field_fulltext[$billNode->language][0]['value'], $vocab);
+				$i = 0;
+				foreach ($keywordterms as $tid) {
+					$billNode->field_keywords[$billNode->language][$i]['tid'] = $tid;
+					$i++;
+				}
+                node_save($billNode);
+                $message = "(Pass 1) Fixing missing Code Watch on " . $billLongTitle . ".";
+	            $type = "GA Lobby QA";
+	            watchdog($type, $message, $variables = array(), $severity = WATCHDOG_NOTICE, $link = NULL);
+    		    }
+		      }
+        }
+
+		//clear table first to avoid multiple bill/keyword relationships from cluttering table and slowing things down
+		db_query('TRUNCATE galobby_keywords');
+        $loadedbills = node_load_multiple(FALSE, array('type' => 'bill_testing'));
+		foreach ($loadedbills as $billNode) {
+			$billterm = $billNode->field_billterms[$billNode->language][0]['tid'];
+			if ($billterm != NULL && isset($billNode->field_keywords[$billNode->language]))  {
+				$keywordsField = $billNode->field_keywords[$billNode->language];
+				foreach ($keywordsField as $keyArray) {
+					foreach ($keyArray as $keyTerm) {
+						//write the association to the table
+						$table = 'galobby_keywords';
+						$record = new stdClass();
+						$record->bill_term = $billterm;
+						$record->keyword = $keyTerm;
+						drupal_write_record($table, $record);
+					}
+				}
+			}
+		}
+        $loadedbills = NULL; //free memory
+        unset($loadedbills); //free memory
+        $keywordsField = NULL; //free memory
+        unset($keywordsField); //free memory
+        $keyArray = NULL; //free memory
+        unset($keyArray); //free memory
+        
+        //Update client watch bill status if needed 2-10-16 JD
+        $loadedcwbills = node_load_multiple(FALSE, array('type' => 'client_watch')); 
+        $i = 1; 
+        foreach ($loadedcwbills as $cwbillnode) { 
+        $title = strtoupper($cwbillnode->field_bill_type[$cwbillnode->language][0]['value'].$cwbillnode->field_bill_number[$cwbillnode->language][0]['value']); 
+        $result = db_query("SELECT n.nid FROM {node} n WHERE n.title = :title AND n.type = :type", array(":title"=> $title, ":type"=> 'bill_testing')); 
+        $bill = node_load($result->fetchField()); 
+        if ( $cwbillnode->field_status[$cwbillnode->language][0]['value'] != $bill->field_status[$bill->language][0]['value'] ) { 
+        echo $i++ . " Fixing Bill: " . $title . ", CW Status:" . $cwbillnode->field_status[$cwbillnode->language][0]['value'] . ", Bill status: " . $bill->field_status[$bill->language][0]['value'] . "\n"; 
+        $cwbillnode->field_status[$cwbillnode->language][0]['value'] = $bill->field_status[$bill->language][0]['value']; 
+        node_save($cwbillnode); 
+} 
+unset($bill); 
+}
+        $loadedcwbills = NULL; //free memory
+        unset($loadedcwbills); //free memory
+        $cwbillnode = NULL; //free memory
+        unset($cwbillnode); //free memory
+        $cwbillnode = NULL; //free memory
+        unset($cwbillnode); //free memory
+        $result = NULL; //free memory
+        unset($result); //free memory
+
+        $message = "Completed GA Lobby cron job for QA, Code Watch tagging, and Client Watch status update at " . date("h:i:sa") . ".";
+	    $type = "GA Lobby Cron";
+	    watchdog($type, $message, $variables = array(), $severity = WATCHDOG_NOTICE, $link = NULL);
+	}
+			
+/*
+ * Cron to remove unneeded roles from users so that they don't see weird role conflicting stuff
+ */
+function galobby_watch_clean_subscriber_roles() {
+	//start with highest level perms, Bundled Subscription - rid 10
+	$userswbund = db_query('SELECT uid FROM {users_roles} WHERE rid = :rid', array(':rid' => '10'));
+	foreach ($userswbund as $auser) {
+		galobby_watch_change_roles($auser->uid, $add = array(), $remove = array(4, 5, 6, 7, 8, 9));
+	}
+	//move to next level perms, Bill Watch Subscription - rid 9... users can also have gov't so don't remove that one - rid 7
+	$userswbill = db_query('SELECT uid FROM {users_roles} WHERE rid = :rid', array(':rid' => '9'));
+	foreach ($userswbill as $buser) {
+		galobby_watch_change_roles($buser->uid, $add1 = array(), $remove1 = array(4, 5, 6, 8));
+	}
+	//next level perms, Gov't Watch Subscription - rid 7... users can also have Board Watch so don't remove that one - rid 6
+	$userswgovt = db_query('SELECT uid FROM {users_roles} WHERE rid = :rid', array(':rid' => '7'));
+	foreach ($userswgovt as $cuser) {
+		galobby_watch_change_roles($cuser->uid, $add2 = array(), $remove2 = array(4, 5, 8));
+	}
+	//next level perms, Board Watch Subscription - rid 6
+	$userswboard = db_query('SELECT uid FROM {users_roles} WHERE rid = :rid', array(':rid' => '6'));
+	foreach ($userswboard as $duser) {
+		galobby_watch_change_roles($duser->uid, $add3 = array(), $remove3 = array(4, 5, 8));
+	}
+}
+
+/**
+ * Helper Functions to quickly remove and add roles
+ *  Originally part of MoneyScripts Membership module
+ * @param $uid
+ *   The user id
+ * @param $add
+ *   An array of roles that should be added to the user
+ * @param $remove
+ *   An array of roles that should be removed from the user
+ */
+function galobby_watch_change_roles($uid, $add = array(), $remove = array()) {
+  // Remove the Roles
+  if (is_array($remove)) {
+    foreach ($remove as $rid) {
+      if ($rid) {
+        galobby_watch_remove_role($uid, $rid);
+      }
+    }
+  }
+
+   // Add the Roles
+  if (is_array($add)) {
+    foreach ($add as $rid) {
+      if ($rid) {
+        galobby_watch_add_role($uid, $rid);
+      }
+    }
+  }
+}
+
+/**
+ * Add a role to a user
+ */
+function galobby_watch_add_role($uid, $rid) {
+  $account = user_load($uid, TRUE);
+  if ($rid AND $account->uid) {
+    if (!in_array($rid, array(DRUPAL_ANONYMOUS_RID, DRUPAL_AUTHENTICATED_RID))) {
+      // Remove the role first just in case the user already has it for some reason
+      galobby_watch_remove_role($account->uid, $rid);
+      $id = db_insert('users_roles')
+        ->fields(array(
+              'uid' => $account->uid,
+              'rid' => $rid,
+            ))
+        ->execute();
+      $roles = user_roles(TRUE);
+    }
+  }
+}
+
+/**
+ * Remove a role from a user
+ */
+function galobby_watch_remove_role($uid, $rid) {
+  $account = user_load($uid);
+
+  if ($rid AND $account->uid AND isset($account->roles[$rid])) {
+    if (!in_array($rid, array(DRUPAL_ANONYMOUS_RID, DRUPAL_AUTHENTICATED_RID))) {
+      db_delete('users_roles')
+        ->condition('uid', $account->uid)
+        ->condition('rid', $rid)
+        ->execute();
+
+      $roles = user_roles(TRUE);
+    }
+  }
+}
+
+
+/* 
+ * Functions go through all URLs numerically until bill not found on legislative site and updates and adds bill nodes as needed
+ * Changed March 2016 - speed improvements made
+ */
+function galobby_watch_nightly_updater_v2($billtype_nc)  {
+	//Set up simple html, pdf, url variables and load existing bill nodes
+	$html_nc = new simple_html_dom();
+	// Reference new parser
+    $a_nc = new \Smalot\PdfParser\Parser();
+	$billExists_nc = TRUE;
+	$billnumber_nc = 1;
+	$baseurl_nc = 'http://www.legis.ga.gov/legislation/en-US/Display/20172018/';
+	//counter for non-consectutive bills on state legis
+	$n = 0;
+	while ($billExists_nc)  {
+		$bill_nc = $billtype_nc . $billnumber_nc;
+		$url_nc = $baseurl_nc . $billtype_nc . '/' . $billnumber_nc;
+		$html_nc->load_file($url_nc);
+		$longTitle_nc = $html_nc->find('div.ggah1');
+		//Make sure that bill with prefix and number exists on GA leg. site by seeing if there is a long descrip
+		if ($longTitle_nc != NULL) {
+			//let's reset the counter for non-consectutive bills if we find one after a skipped one
+			$n = 0;
+			$foundBill_nc = FALSE;
+			//if bill exists, check bill short title against bill nodes' titles, if bill node exists, update full text and sponsors (keyword tagging happens via Rules but needs reset to NULL for that to take place), else if doesn't exist, create bill node
+			$queryNI = new EntityFieldQuery();
+			$entities = $queryNI->entityCondition('entity_type', 'node')
+				->propertyCondition('type', 'bill_testing')
+				->propertyCondition('title', $bill_nc)
+				->execute();
+			if (!empty($entities['node'])) {
+				$singleNode_nc = node_load(current(array_keys($entities['node'])));
+				if ($foundBill_nc != TRUE) {
+					$cleanURL_nc = $singleNode_nc->field_linkfulltext[$singleNode_nc->language][0]['value'];
+					if ($cleanURL_nc != NULL) {
+					    $fullTextURL_nc = $html_nc->find('div.ScreenOnly div a');
+                        //Clean up URL of PDF address to prepare for full text import 
+                        $fullURL_nc = $fullTextURL_nc[0];
+                        $endURL_nc = strpos($fullURL_nc, 'pdf"');
+                        $URLpos_nc = $endURL_nc-6;
+                        $cleanURL_nc1 = substr($fullURL_nc, 9, $URLpos_nc);
+						//if the PDF hasn't changed, let's not re-import it - changed March 7 2016
+						if ($cleanURL_nc != $cleanURL_nc1) {
+							$pdf_nc = galobby_watch_fulltext_importer($cleanURL_nc1, $a_nc, $billtype_nc, $billnumber_nc);
+							$pdfCleaned_nc = $pdf_nc;
+							//Issues encountered with encoded text being entered into database... let's try plain text instead since this 
+							// field doesn't need to be in HTML. - LT 01/12/2018
+							//$singleNode_nc->field_fulltext[$singleNode_nc->language][0]['format'] = 'full_html';
+							$singleNode_nc->field_fulltext[$singleNode_nc->language][0]['format'] = 'plain_text';
+							$singleNode_nc->field_fulltext[$singleNode_nc->language][0]['value'] = $pdfCleaned_nc;
+							$singleNode_nc->field_linkfulltext[$singleNode_nc->language][0]['format'] = 'full_html';
+							$singleNode_nc->field_linkfulltext[$singleNode_nc->language][0]['value'] = $cleanURL_nc1;
+						}
+						//Clean up bill description for long title usage
+						$billLen_nc = strlen($bill_nc)+2;
+ 						$billToDes_nc = $billLen_nc+53;
+   						$shortBill_nc = substr($longTitle_nc[0], 49, $billLen_nc);
+   						$billDes_nc = substr($longTitle_nc[0], $billToDes_nc, -6);
+   						$billTitle_nc = $shortBill_nc . ' - ' . $billDes_nc;
+						$singleNode_nc->field_billdescrip[$singleNode_nc->language][0]['value'] = $billTitle_nc;
+					}
+					else {
+						$fullTextURL_nc = $html_nc->find('div.ScreenOnly div a');
+						//Clean up bill description for long title usage
+						$billLen_nc = strlen($bill_nc)+2;
+ 						$billToDes_nc = $billLen_nc+53;
+   						$shortBill_nc = substr($longTitle_nc[0], 49, $billLen_nc);
+   						$billDes_nc = substr($longTitle_nc[0], $billToDes_nc, -6);
+   						$billTitle_nc = $shortBill_nc . ' - ' . $billDes_nc;
+						$singleNode_nc->field_billdescrip[$singleNode_nc->language][0]['value'] = $billTitle_nc;
+						//Clean up URL of PDF address to prepare for full text import 
+						$fullURL_nc = $fullTextURL_nc[0];
+						$endURL_nc = strpos($fullURL_nc, 'pdf"');
+						$URLpos_nc = $endURL_nc-6;
+						$cleanURL_nc1 = substr($fullURL_nc, 9, $URLpos_nc);
+						$pdf_nc1 = galobby_watch_fulltext_importer($cleanURL_nc1, $a_nc, $billtype_nc, $billnumber_nc);
+						$pdfCleaned_nc1 = $pdf_nc1;
+						// See line 1662
+						//$singleNode_nc->field_fulltext[$singleNode_nc->language][0]['format'] = 'full_html';
+						$singleNode_nc->field_fulltext[$singleNode_nc->language][0]['format'] = 'plain_text';
+						$singleNode_nc->field_fulltext[$singleNode_nc->language][0]['value'] = $pdfCleaned_nc1;
+						$singleNode_nc->field_linkfulltext[$singleNode_nc->language][0]['format'] = 'full_html';
+						$singleNode_nc->field_linkfulltext[$singleNode_nc->language][0]['value'] = $cleanURL_nc1;
+					}
+					$singleNode_nc->field_keywords[$singleNode_nc->language] = NULL;
+					$sponsors_nc = galobby_watch_find_item('<i>Sponsored By</i>', $html_nc);
+					$committees_nc = galobby_watch_find_item('<i>Committees</i>', $html_nc);
+					$summary_nc = galobby_watch_find_item('<i>First Reader Summary</i>', $html_nc);
+					$status_nc1 = galobby_watch_find_item('<i>Status History</i>', $html_nc);
+					$singleNode_nc->field_descrip[$singleNode_nc->language][0]['value'] = $summary_nc;
+					$singleNode_nc->field_sponsor[$singleNode_nc->language][0]['value'] = $sponsors_nc;
+					$singleNode_nc->field_committee[$singleNode_nc->language][0]['value'] = $committees_nc;
+					$singleNode_nc->field_status[$singleNode_nc->language][0]['value'] = $status_nc1;
+					//malformed bills may not have text formats set, let's check for that and fix - 01/29/2018 LT
+					//if ($singleNode_nc->field_descrip[$singleNode_nc->language][0]['format'] == NULL) {
+						$singleNode_nc->field_descrip[$singleNode_nc->language][0]['format'] = 'full_html';
+						$singleNode_nc->field_sponsor[$singleNode_nc->language][0]['format'] = 'full_html';
+						$singleNode_nc->field_status[$singleNode_nc->language][0]['format'] = 'full_html';
+						$singleNode_nc->field_committee[$singleNode_nc->language][0]['format'] = 'full_html';
+					//}
+					//Added May 2015 - create uniform URL aliases for use with bills across the site
+					if ($singleNode_nc->path['alias'] != 'bill/' . $bill_nc) {
+						$singleNode_nc->path['alias'] = 'bill/' . $bill_nc;
+					}
+					//Check bill term, update if needed
+					$terms = $singleNode_nc->field_billterms;
+					$tid = $singleNode_nc->field_billterms[$singleNode_nc->language][0]['tid'];
+					if ($tid != NULL) {
+						$fullTerm = taxonomy_term_load($tid);
+						if ($fullTerm->name != $billTitle_nc) {
+							galobby_watch_update_bill_term($billTitle_nc, $tid);
+						}
+					}
+					elseif ($terms == NULL) {
+						$x = 0;
+						$fullTerms = taxonomy_get_term_by_name($billTitle_nc);
+						//dpm('full terms array');
+						//dpm($fullTerms);
+						if($fullTerms != NULL) {
+							foreach($fullTerms as $fullTerm) {
+								$singleNode_nc->field_billterms[$singleNode_nc->language][$x]['tid'] = $fullTerm->tid;
+								$x++;
+							}
+						}
+						else {
+							$term_nc = galobby_watch_create_bill_term($billTitle_nc);
+							$singleNode_nc->field_billterms[$singleNode_nc->language][0]['tid'] = $term_nc;
+						}
+					}
+					node_save($singleNode_nc);
+					$foundBill_nc = TRUE;
+					set_time_limit(180);
+				}	
+			}
+			elseif($foundBill_nc == FALSE)  {
+				$fullTextURL_nc = $html_nc->find('div.ScreenOnly div a');
+				//Clean up bill description for long title usage
+				$billLen_nc = strlen($bill_nc)+2;
+ 				$billToDes_nc = $billLen_nc+53;
+   				$shortBill_nc = substr($longTitle_nc[0], 49, $billLen_nc);
+   				$billDes_nc = substr($longTitle_nc[0], $billToDes_nc, -6);
+   				$billTitle_nc = $shortBill_nc . ' - ' . $billDes_nc;
+				//Start to create new bill
+				$billNode_nc = new stdClass();
+				$billNode_nc->type = 'bill_testing';
+				$billNode_nc->title = $bill_nc;
+				$billNode_nc->language = LANGUAGE_NONE;
+				$billNode_nc->comment = 2; //comments on
+				$billNode_nc->field_billdescrip[$billNode_nc->language][0]['value'] = $billTitle_nc;
+				$billNode_nc->field_billdescrip[$billNode_nc->language][0]['format'] = 'full_html';
+				//Create bill term and tag bill with it
+				$term_nc = galobby_watch_create_bill_term($billTitle_nc);
+				$billNode_nc->field_billterms[$billNode_nc->language][0]['tid'] = $term_nc;
+				//Clean up URL of PDF address to prepare for full text import 
+				$fullURL_nc = $fullTextURL_nc[0];
+				$endURL_nc = strpos($fullURL_nc, 'pdf"');
+				$URLpos_nc = $endURL_nc-6;
+				$cleanURL_nc1 = substr($fullURL_nc, 9, $URLpos_nc);
+				$pdf_nc1 = galobby_watch_fulltext_importer($cleanURL_nc1, $a_nc, $billtype_nc, $billnumber_nc);
+				$pdfCleaned_nc1 = $pdf_nc1;
+				//See line 1662
+				//$billNode_nc->field_fulltext[$billNode_nc->language][0]['format'] = 'full_html';
+				$billNode_nc->field_fulltext[$billNode_nc->language][0]['format'] = 'plain_text';
+				$billNode_nc->field_fulltext[$billNode_nc->language][0]['value'] = $pdfCleaned_nc1;
+				$billNode_nc->field_linkfulltext[$billNode_nc->language][0]['format'] = 'full_html';
+				$billNode_nc->field_linkfulltext[$billNode_nc->language][0]['value'] = $cleanURL_nc1;
+				//Call data finding function for each piece of needed data
+				$sponsors_nc = galobby_watch_find_item('<i>Sponsored By</i>', $html_nc);
+				$committees_nc = galobby_watch_find_item('<i>Committees</i>', $html_nc);
+				$summary_nc = galobby_watch_find_item('<i>First Reader Summary</i>', $html_nc);
+				$status_nc1 = galobby_watch_find_item('<i>Status History</i>', $html_nc);
+				$billNode_nc->field_descrip[$billNode_nc->language][0]['value'] = $summary_nc;
+				$billNode_nc->field_descrip[$billNode_nc->language][0]['format'] = 'full_html';
+				$billNode_nc->field_sponsor[$billNode_nc->language][0]['value'] = $sponsors_nc;
+				$billNode_nc->field_sponsor[$billNode_nc->language][0]['format'] = 'full_html';
+				$billNode_nc->field_status[$billNode_nc->language][0]['value'] = $status_nc1;
+				$billNode_nc->field_status[$billNode_nc->language][0]['format'] = 'full_html';
+				$billNode_nc->field_committee[$billNode_nc->language][0]['value'] = $committees_nc;
+				$billNode_nc->field_committee[$billNode_nc->language][0]['format'] = 'full_html';
+				//Added May 2015 - create uniform URL aliases for use with bills across the site
+				$singleNode_nc->path['alias'] = 'bill/' . $bill_nc;
+				node_save($billNode_nc);
+                field_cache_clear();
+				set_time_limit(180);
+			}
+			
+			/* Update CW bills in addition to bill nodes - added July 2017 LT */
+			 
+			$queryCW = new EntityFieldQuery();
+			$entitiesCW = $queryCW->entityCondition('entity_type', 'node')
+				->propertyCondition('type', 'client_watch')
+				->propertyCondition('title', $bill_nc)
+				->execute();
+			if (!empty($entitiesCW['node'])) {
+				$cwNodes = node_load_multiple(array_keys($entitiesCW['node']));
+				if ($cwNodes != NULL) {
+					foreach ($cwNodes as $cwnode) {
+						$cwnode->field_billdescrip[$cwnode->language][0]['value'] = $billTitle_nc;
+						$cwnode->field_billdescrip[$cwnode->language][0]['format'] = 'full_html';
+						$cwnode->field_descrip[$cwnode->language][0]['value'] = $summary_nc;
+						$cwnode->field_descrip[$cwnode->language][0]['format'] = 'full_html';
+						$cwnode->field_sponsor[$cwnode->language][0]['value'] = $sponsors_nc;
+						$cwnode->field_sponsor[$cwnode->language][0]['format'] = 'full_html';
+						$cwnode->field_status[$cwnode->language][0]['value'] = $status_nc1;
+						$cwnode->field_status[$cwnode->language][0]['format'] = 'full_html';
+						$cwnode->field_committee[$cwnode->language][0]['value'] = $committees_nc;
+						$cwnode->field_committee[$cwnode->language][0]['format'] = 'full_html';
+						node_save($cwnode);
+					}
+				}
+			}
+			
+			$billnumber_nc++;
+		}
+		else {
+			if($n > 1) {
+				$billExists_nc = FALSE;
+			}
+			$n++;
+			$billnumber_nc++;
+		}
+	}
+	unset($html_nc);
+	unset($a_nc);
+	$billnumber_nc--;
+    $billnumber_nc = $billnumber_nc - 3;
+    switch ($billtype_nc) {
+    case "HB":
+      variable_set('galobby_last_hb', $billnumber_nc);
+      break;
+    case "HR":
+      variable_set('galobby_last_hr', $billnumber_nc);
+      break;
+    case "SB":
+      variable_set('galobby_last_sb', $billnumber_nc);
+      break;
+    case "SR":
+      variable_set('galobby_last_sr', $billnumber_nc);
+      break;
+    }
+	$message = "Completed GA Lobby cron job V2 for " . $billtype_nc . " endpoint at " . $billnumber_nc;
+	$type = "GA Lobby Cron";
+	watchdog($type, $message, $variables = array(), $severity = WATCHDOG_NOTICE, $link = NULL);
+}
+/* End of Bill Importer Version 2.0 */
+
+function galobby_watch_nightly_hb_cron()  {
+	galobby_watch_nightly_updater_v2('HB');
+}
+
+function galobby_watch_nightly_hr_cron()  {
+	galobby_watch_nightly_updater_v2('HR');
+}
+
+function galobby_watch_nightly_sb_cron()  {
+	galobby_watch_nightly_updater_v2('SB');
+}
+
+function galobby_watch_nightly_sr_cron()  {
+	galobby_watch_nightly_updater_v2('SR');
+}
+
+//Fixes bill terms with characters that are not whitespace but show as whitespace
+function galobby_watch_fix_terms() {
+	$a = taxonomy_get_tree($vid = 7, $parent = 0, $max_depth = NULL, $load_entities = TRUE);
+	foreach ($a as $b)  {
+  		$bname = $b->name;
+   		$bnew = preg_replace("[B\W{2}]","B ", $bname);
+		$bnew = preg_replace("[R\W{2}]","R ", $bnew);
+ 		$b->name = $bnew;
+   		taxonomy_term_save($b);
+	}
+}
+
+//A script to consolidate keywords with duplicate names into the same tid and add the new subscription with correct tid to subscriptions field.  Then delete the duplicates.  Should be run once only.
+function galobby_watch_consolidate_keywords() {
+	//start by getting all terms for processing
+	$allterms = db_query('SELECT tid, name FROM {taxonomy_term_data} WHERE vid = :vid', array(':vid' => 8));
+	foreach($allterms as $term) {
+		//the SQL query to get terms only runs once... if we don't check to see that the term still exists, weird stuff will happen
+		$bool = taxonomy_term_load($term->tid);
+		if ($bool != FALSE) {
+			$name = $term->name;
+			$tid = $term->tid;
+			//let's get the terms with the same name
+			$matchingterms = db_query('SELECT tid FROM {taxonomy_term_data} WHERE vid = :vid AND name = :name', array(':vid' => 8, ':name' => $name));
+			foreach($matchingterms as $match) {
+				if ($match->tid != $tid) {
+					$markedfordelete[] = $match->tid;
+				}
+			}
+			foreach($markedfordelete as $singledelete) {
+				//let's make sure that we get the user subscriptions transferred to the main term tid before deleting them as duplicates!!
+				$uids = db_query('SELECT recipient_uid FROM {subscriptions} WHERE value = :value', array(':value' => $singledelete));
+				foreach($uids as $uid) {
+					$table = 'subscriptions';
+					$record = new stdClass();
+					$record->module = 'node';
+					$record->field = 'tid';
+					$record->value = $tid;
+					$record->recipient_uid = $uid;
+					$record->send_interval = 1;
+					$record->author_uid = -1;
+					$record->send_updates = 1;
+					$record->send_comments = 0;
+					drupal_write_record($table, $record);
+				}
+				//now we can delete all the extras from the database
+				taxonomy_term_delete($singledelete);
+				db_query('DELETE FROM subscriptions WHERE value = :value', array(':value' => $singledelete)); 
+			}
+		}
+	}
+	//forgot to clean up the keywords table itself inside of the other foreach so this code will do it
+	$morecleanup = db_query('SELECT field_keywords_tid FROM {field_data_field_keywords}');
+	foreach ($morecleanup as $another) {
+		//if it doesn't exist as a term, delete it from the table
+		$bool = taxonomy_term_load($another->field_keywords_tid);
+		if ($bool == FALSE) {
+			db_query('DELETE FROM field_keywords_tid WHERE field_keywords_tid = :field_keywords_tid', array(':field_keywords_tid' => $another->field_keywords_tid));
+		}
+	}
+}
+
+//A script to empty keywords on notices older than a month from field_data_field_keywords.  Should run via cron at least once a week to keep database to a reasonable size.
+function galobby_watch_clean_keywords_field() {
+	$nidstoclean[] = NULL;
+	$now = time();
+	$oldbwnotices = db_query('SELECT nid, created FROM {node} WHERE type = :type', array(':type' => 'notice'));
+	if ($oldbwnotices != NULL) {
+		foreach($oldbwnotices as $notice) {
+			//we're working with timestamps... a month is 2629743 seconds so the difference should be greater than that to be marked for deletion
+			$diff = $now - $notice->created;
+			if ($diff > 2629743) {
+				$nidstoclean[] = $notice->nid;
+			}
+		}
+	}
+	$oldgwnotices = db_query('SELECT nid, created FROM {node} WHERE type = :type', array(':type' => 'government_watch_notice'));
+	if ($oldgwnotices != NULL) {
+		foreach($oldgwnotices as $gwnotice) {
+			//we're working with timestamps... a month is 2629743 seconds so the difference should be greater than that to be marked for deletion
+			$diff = $now - $gwnotice->created;
+			if ($diff > 2629743) {
+				$nidstoclean[] = $gwnotice->nid;
+			}
+		}
+	}
+	if ($nidstoclean != NULL) {
+		foreach($nidstoclean as $nid) {
+			db_query('DELETE FROM field_data_field_keywords WHERE entity_id = :entity_id', array(':entity_id' => $nid)); 
+		}
+	}
+}
+
+// Script that copies duplicate service field on contracts into both fields to prepare for consolidate to singular field.  
+// Should only be run once.
+/*function galobby_watch_contract_services() {
+	$log = "INFO " . date("h:i:sa") . " - Beginning of contract services field consolidation.";
+	$type = "GA Lobby Notice";
+	watchdog($type, $log, $variables = array(), $severity = WATCHDOG_INFO, $link = NULL);
+
+	$query = new EntityFieldQuery();
+	$entities = $query->entityCondition('entity_type', 'node')
+					->propertyCondition('type', 'contracts')
+					->execute();
+	if (!empty($entities['node'])) {
+  		$contracts = node_load_multiple(array_keys($entities['node']));
+		foreach ($contracts as $contract) {
+			$log = "INFO " . date("h:i:sa") . " - Beginning of contract services field consolidation for " . $contract->nid;
+			$type = "GA Lobby Notice";
+			watchdog($type, $log, $variables = array(), $severity = WATCHDOG_INFO, $link = NULL);
+			$n = 0;
+			if ($contract->field_services_subscribed == NULL) {
+				while ($n < 5) {
+					if ($contract->field_board_watch['und'][0]['value'] == 1) {
+						$contract->field_services_subscribed['und'][$n]['value'] = 'board';
+						$n++;
+					}
+					if ($contract->field_government_watch['und'][0]['value'] == 1) {
+						$contract->field_services_subscribed['und'][$n]['value'] = 'govt';
+						$n++;
+					}
+					if ($contract->field_bill_watch_serv['und'][0]['value'] == 1) {
+						$contract->field_services_subscribed['und'][$n]['value'] = 'bill';
+						$n++;
+					}
+					if ($contract->field_code_watch['und'][0]['value'] == 1) {
+						$contract->field_services_subscribed['und'][$n]['value'] = 'code';
+						$n++;
+					}
+					if ($contract->field_client_watch['und'][0]['value'] == 1) {
+						$contract->field_services_subscribed['und'][$n]['value'] = 'client';
+						$n++;
+					}
+					else {
+						$n = 5;
+					}
+				}
+			}
+			node_save($contract);
+		}
+	}
+	$log = "INFO " . date("h:i:sa") . " - End of contract services field consolidation.";
+	$type = "GA Lobby Notice";
+	watchdog($type, $log, $variables = array(), $severity = WATCHDOG_INFO, $link = NULL);
+}
+
+/*
+ * Add cron jobs to tag notice nodes if needed and clean up galobby db table
+ */
+function galobby_watch_cronapi($op, $job = NULL) {
+	$items['galobby_watch_precreate_bills'] = array(
+		'description' => 'Pre-create bills before import updates by nightly cron importer',
+		'rule' => '30 0 * * *',
+		'weight' => 0
+		);
+	$items['galobby_watch_nightly_hb_cron'] = array(
+		'description' => 'For HB: Update full text on existing bill nodes and import new bill nodes nightly',
+		'rule' => '0 1 * * *',
+		'weight' => 0
+		);
+	$items['galobby_watch_nightly_hr_cron'] = array(
+		'description' => 'For HR: Update full text on existing bill nodes and import new bill nodes nightly',
+		'rule' => '45 1 * * *',
+		'weight' => 0
+		);
+	$items['galobby_watch_nightly_sb_cron'] = array(
+		'description' => 'For SB: Update full text on existing bill nodes and import new bill nodes nightly',
+		'rule' => '0 3 * * *',
+		'weight' => 0
+		);
+	$items['galobby_watch_nightly_sr_cron'] = array(
+		'description' => 'For SR: Update full text on existing bill nodes and import new bill nodes nightly',
+		'rule' => '15 4 * * *',
+		'weight' => 0
+		);
+	$items['galobby_watch_clean_subscriber_roles'] = array(
+		'description' => 'Remove extra roles added to users',
+		'rule' => '45 23 * * *',
+		'weight' => 0
+		);
+	$items['galobby_watch_tagging_cron'] = array(
+		'description' => 'Runs after nightly updater to link bill term and keyword term tids in galobby_keywords table',
+		'rule' => '15 5 * * *',
+		'weight' => 0
+		);
+	$items['galobby_watch_fix_terms'] = array(
+		'description' => 'Fixes non-character non-whitespace in Bill Watch terms',
+		'rule' => '5 0 * * *',
+		'weight' => 0
+		);
+	$items['galobby_watch_clean_keywords_field'] = array(
+		'description' => 'Cleans notices older than a month',
+		'rule' => '0 10 * * 0',
+		'weight' => 0
+		);
+	$items['galobby_watch_status_email'] = array(
+		'description' => 'Nightly bill status report email',
+		'rule' => '45 5 * * *',
+		'weight' => 0
+		);
+	return $items;
+}
+
+//Cron script to fix orphaned users and update their organization linkage as needed
+function galobby_watch_fix_client_linkage() {
+	$edit = array();
+	//part 1 = iterate through contracts and set contracts for users
+	$contractNodes = node_load_multiple(array(), array('type' => 'contracts'));
+	foreach($contractNodes as $contract) {
+		if ($contract->field_subscribers != NULL) {
+			foreach($contract->field_subscribers['und'] as $userID) {
+				$userAcct = $userID['target_id'];
+				if ($userAcct != NULL) {
+					$acc = user_load($userAcct);
+					if ($acc->field_company['und'][0]['target_id'] != $contract->nid) {
+						$acc->field_company['und'][0]['target_id'] = $contract->nid;
+						user_save($acc, $edit);
+						$message = "Completed user update for " . $acc->name . " by assigning them to contract " . $contract->title . ".";
+						$type = "GA Lobby Cron";
+						watchdog($type, $message, $variables = array(), $severity = WATCHDOG_NOTICE, $link = NULL);
+					}
+					if ($acc->access == 0 || $acc->login == 0) {
+						$acc->access = time();
+						$acc->login = time();
+						user_save($acc, $edit);
+						$message = "Completed user update for " . $acc->name . " by auto-verifying their account to enable email.";
+						$type = "GA Lobby Cron";
+						watchdog($type, $message, $variables = array(), $severity = WATCHDOG_NOTICE, $link = NULL);
+					}
+				}
+			}
+		}
+	} /*
+	//part 2 = remove and block users that truly don't belong on contracts
+	$query = new EntityFieldQuery;
+
+	$results = $query
+  		->entityCondition('entity_type', 'user')
+  		->execute();
+	
+	foreach($results as $userObj) {
+		$admin = user_has_role(3, $userObj);
+		$employee = user_has_role(7, $userObj);
+		if ($userObj->status == 0) {
+			$userObj->field_company['und'][0]['target_id'] = 23727;
+			user_save($userObj, $edit);
+		}
+		else {
+			$contractNid = $userObj->field_company['und'][0]['target_id'];
+			$contract = node_load($contractNid);
+			$listed = FALSE;
+			$userarray = $contract->field_subscribers['und'];
+			foreach($userarray as $userID) {
+				if($userID['target_id'] == $userObj->uid) {
+					$listed = TRUE;
+				}
+			}
+			if (!$listed && !$admin && !$employee) {
+				$userObj->field_company['und'][0]['target_id'] = 23727;
+				$userObj->status = 0;
+				user_save($userObj, $edit);
+			}
+		}
+	}*/
+}
+
+/** Jan 2016 - Incremental Bill Importer (JD) **/
+/* 
+ * Functions go through all URLs numerically until bill not found on legislative site and updates and adds bill nodes as needed
+ */
+
+function galobby_watch_incremental_updater($billtype_nc, $billstart, $billend)  {
+	//Set up simple html, pdf, url variables and load existing bill nodes
+	$html_nc = new simple_html_dom();
+	// Reference new parser
+    $a_nc = new \Smalot\PdfParser\Parser();
+	// $a_nc = new PDF2Text();
+	$billExists_nc = TRUE;
+	$billnumber_nc = $billstart;
+	//Updated URL
+	$baseurl_nc = 'http://www.legis.ga.gov/legislation/en-US/Display/20172018/';
+   	$loadedNodes_nc = node_load_multiple(array(), array('type' => 'bill_testing'));
+	$n = 0;
+	while ($billnumber_nc <= $billend)  {
+		$bill_nc = $billtype_nc . $billnumber_nc;
+		$url_nc = $baseurl_nc . $billtype_nc . '/' . $billnumber_nc;
+        $infomessage = 'Now importing ' . $url_nc . '.';
+        drupal_set_message($infomessage,'status');
+		$html_nc->load_file($url_nc);
+		$longTitle_nc = $html_nc->find('div.ggah1');
+		//Make sure that bill with prefix and number exists on GA leg. site by seeing if there is a long descrip
+		if ($longTitle_nc != NULL) {
+			$foundBill_nc = FALSE;
+			//if bill exists, check bill short title against bill nodes' titles, if bill node exists, update full text and sponsors (keyword tagging happens via Rules but needs reset to NULL for that to take place), else if doesn't exist, create bill node
+			foreach($loadedNodes_nc as $singleNode_nc) {
+				if ($singleNode_nc->title == $bill_nc && $foundBill_nc != TRUE) { 
+					//dpm('node loaded');
+				//if ($singleNode_nc->title != NULL) {
+					$cleanURL_nc = $singleNode_nc->field_linkfulltext[$singleNode_nc->language][0]['value'];
+					if ($cleanURL_nc != NULL) {
+						//dpm('link to full text is not empty');
+					    $fullTextURL_nc = $html_nc->find('div.ScreenOnly div a');
+                        //Clean up URL of PDF address to prepare for full text import 
+                        $fullURL_nc = $fullTextURL_nc[0];
+                        $endURL_nc = strpos($fullURL_nc, 'pdf"');
+                        $URLpos_nc = $endURL_nc-6;
+                        $cleanURL_nc1 = substr($fullURL_nc, 9, $URLpos_nc);
+						$pdf_nc = galobby_watch_fulltext_importer($cleanURL_nc1, $a_nc, $billtype_nc, $billnumber_nc);
+						$pdfCleaned_nc = $pdf_nc;
+						//See line 1662
+						//$singleNode_nc->field_fulltext[$singleNode_nc->language][0]['format'] = 'full_html';
+						$singleNode_nc->field_fulltext[$singleNode_nc->language][0]['format'] = 'plain_text';
+						$singleNode_nc->field_fulltext[$singleNode_nc->language][0]['value'] = $pdfCleaned_nc;
+						//Clean up bill description for long title usage
+						$billLen_nc = strlen($bill_nc)+2;
+ 						$billToDes_nc = $billLen_nc+53;
+   						$shortBill_nc = substr($longTitle_nc[0], 49, $billLen_nc);
+   						$billDes_nc = substr($longTitle_nc[0], $billToDes_nc, -6);
+   						$billTitle_nc = $shortBill_nc . ' - ' . $billDes_nc;
+						$singleNode_nc->field_billdescrip[$singleNode_nc->language][0]['value'] = $billTitle_nc;
+						$singleNode_nc->field_linkfulltext[$singleNode_nc->language][0]['format'] = 'full_html';
+						$singleNode_nc->field_linkfulltext[$singleNode_nc->language][0]['value'] = $cleanURL_nc1;
+					}
+					else {
+						//dpm('link to full text is empty');
+						$fullTextURL_nc = $html_nc->find('div.ScreenOnly div a');
+						//Clean up bill description for long title usage
+						$billLen_nc = strlen($bill_nc)+2;
+ 						$billToDes_nc = $billLen_nc+53;
+   						$shortBill_nc = substr($longTitle_nc[0], 49, $billLen_nc);
+   						$billDes_nc = substr($longTitle_nc[0], $billToDes_nc, -6);
+   						$billTitle_nc = $shortBill_nc . ' - ' . $billDes_nc;
+						$singleNode_nc->field_billdescrip[$singleNode_nc->language][0]['value'] = $billTitle_nc;
+						//Clean up URL of PDF address to prepare for full text import 
+						$fullURL_nc = $fullTextURL_nc[0];
+						$endURL_nc = strpos($fullURL_nc, 'pdf"');
+						$URLpos_nc = $endURL_nc-6;
+						$cleanURL_nc1 = substr($fullURL_nc, 9, $URLpos_nc);
+						$pdf_nc1 = galobby_watch_fulltext_importer($cleanURL_nc1, $a_nc, $billtype_nc, $billnumber_nc);
+						$pdfCleaned_nc1 = $pdf_nc1;
+						//See line 1662
+						//$singleNode_nc->field_fulltext[$singleNode_nc->language][0]['format'] = 'full_html';
+						$singleNode_nc->field_fulltext[$singleNode_nc->language][0]['format'] = 'plain_text';
+						$singleNode_nc->field_fulltext[$singleNode_nc->language][0]['value'] = $pdfCleaned_nc1;
+						$singleNode_nc->field_linkfulltext[$singleNode_nc->language][0]['format'] = 'full_html';
+						$singleNode_nc->field_linkfulltext[$singleNode_nc->language][0]['value'] = $cleanURL_nc1;
+					}
+					$singleNode_nc->field_keywords[$singleNode_nc->language] = NULL;
+					$sponsors_nc = galobby_watch_find_item('<i>Sponsored By</i>', $html_nc);
+					$committees_nc = galobby_watch_find_item('<i>Committees</i>', $html_nc);
+					$summary_nc = galobby_watch_find_item('<i>First Reader Summary</i>', $html_nc);
+					$status_nc1 = galobby_watch_find_item('<i>Status History</i>', $html_nc);
+					$singleNode_nc->field_descrip[$singleNode_nc->language][0]['value'] = $summary_nc;
+					$singleNode_nc->field_sponsor[$singleNode_nc->language][0]['value'] = $sponsors_nc;
+					$singleNode_nc->field_committee[$singleNode_nc->language][0]['value'] = $committees_nc;
+					$singleNode_nc->field_status[$singleNode_nc->language][0]['value'] = $status_nc1;
+					//malformed bills may not have text formats set, let's check for that and fix - 01/29/2018 LT
+					//if ($singleNode_nc->field_descrip[$singleNode_nc->language][0]['format'] == NULL) {
+						$singleNode_nc->field_descrip[$singleNode_nc->language][0]['format'] = 'full_html';
+						$singleNode_nc->field_sponsor[$singleNode_nc->language][0]['format'] = 'full_html';
+						$singleNode_nc->field_status[$singleNode_nc->language][0]['format'] = 'full_html';
+						$singleNode_nc->field_committee[$singleNode_nc->language][0]['format'] = 'full_html';
+					//}
+					//Added May 2015 - create uniform URL aliases for use with bills across the site
+					if ($singleNode_nc->path['alias'] != 'bill/' . $bill_nc) {
+						$singleNode_nc->path['alias'] = 'bill/' . $bill_nc;
+					}
+					//Check bill term, update if needed
+					$terms = $singleNode_nc->field_billterms;
+					$tid = $singleNode_nc->field_billterms[$singleNode_nc->language][0]['tid'];
+					if ($tid != NULL) {
+						$fullTerm = taxonomy_term_load($tid);
+						if ($fullTerm->name != $billTitle_nc) {
+							galobby_watch_update_bill_term($billTitle_nc, $tid);
+						}
+					}
+					elseif ($terms == NULL) {
+						$x = 0;
+						$fullTerms = taxonomy_get_term_by_name($billTitle_nc);
+						//dpm('full terms array');
+						//dpm($fullTerms);
+						if($fullTerms != NULL) {
+							foreach($fullTerms as $fullTerm) {
+								$singleNode_nc->field_billterms[$singleNode_nc->language][$x]['tid'] = $fullTerm->tid;
+								$x++;
+							}
+						}
+						else {
+							$term_nc = galobby_watch_create_bill_term($billTitle_nc);
+							$singleNode_nc->field_billterms[$singleNode_nc->language][0]['tid'] = $term_nc;
+						}
+					}
+					node_save($singleNode_nc);
+					$foundBill_nc = TRUE;
+					set_time_limit(180);
+				}	
+			}
+			if($foundBill_nc == FALSE)  {
+				$fullTextURL_nc = $html_nc->find('div.ScreenOnly div a');
+				//Clean up bill description for long title usage
+				$billLen_nc = strlen($bill_nc)+2;
+ 				$billToDes_nc = $billLen_nc+53;
+   				$shortBill_nc = substr($longTitle_nc[0], 49, $billLen_nc);
+   				$billDes_nc = substr($longTitle_nc[0], $billToDes_nc, -6);
+   				$billTitle_nc = $shortBill_nc . ' - ' . $billDes_nc;
+				//Start to create new bill
+				$billNode_nc = new stdClass();
+				$billNode_nc->type = 'bill_testing';
+				$billNode_nc->title = $bill_nc;
+				$billNode_nc->language = LANGUAGE_NONE;
+				$billNode_nc->comment = 2; //comments on
+				$billNode_nc->field_billdescrip[$billNode_nc->language][0]['value'] = $billTitle_nc;
+				$billNode_nc->field_billdescrip[$billNode_nc->language][0]['format'] = 'full_html';
+				//Create bill term and tag bill with it
+				$term_nc = galobby_watch_create_bill_term($billTitle_nc);
+				$billNode_nc->field_billterms[$billNode_nc->language][0]['tid'] = $term_nc;
+				//Clean up URL of PDF address to prepare for full text import 
+				$fullURL_nc = $fullTextURL_nc[0];
+				$endURL_nc = strpos($fullURL_nc, 'pdf"');
+				$URLpos_nc = $endURL_nc-6;
+				$cleanURL_nc1 = substr($fullURL_nc, 9, $URLpos_nc);
+				$pdf_nc1 = galobby_watch_fulltext_importer($cleanURL_nc1, $a_nc, $billtype_nc, $billnumber_nc);
+				$pdfCleaned_nc1 = $pdf_nc1;
+				//See line 1662
+				//$billNode_nc->field_fulltext[$billNode_nc->language][0]['format'] = 'full_html';
+				$billNode_nc->field_fulltext[$billNode_nc->language][0]['format'] = 'plain_text';
+				$billNode_nc->field_fulltext[$billNode_nc->language][0]['value'] = $pdfCleaned_nc1;
+				$billNode_nc->field_linkfulltext[$billNode_nc->language][0]['format'] = 'full_html';
+				$billNode_nc->field_linkfulltext[$billNode_nc->language][0]['value'] = $cleanURL_nc1;
+				//Call data finding function for each piece of needed data
+				$sponsors_nc = galobby_watch_find_item('<i>Sponsored By</i>', $html_nc);
+				$committees_nc = galobby_watch_find_item('<i>Committees</i>', $html_nc);
+				$summary_nc = galobby_watch_find_item('<i>First Reader Summary</i>', $html_nc);
+				$status_nc1 = galobby_watch_find_item('<i>Status History</i>', $html_nc);
+				$billNode_nc->field_descrip[$billNode_nc->language][0]['value'] = $summary_nc;
+				$billNode_nc->field_descrip[$billNode_nc->language][0]['format'] = 'full_html';
+				$billNode_nc->field_sponsor[$billNode_nc->language][0]['value'] = $sponsors_nc;
+				$billNode_nc->field_sponsor[$billNode_nc->language][0]['format'] = 'full_html';
+				$billNode_nc->field_status[$billNode_nc->language][0]['value'] = $status_nc1;
+				$billNode_nc->field_status[$billNode_nc->language][0]['format'] = 'full_html';
+				$billNode_nc->field_committee[$billNode_nc->language][0]['value'] = $committees_nc;
+				$billNode_nc->field_committee[$billNode_nc->language][0]['format'] = 'full_html';
+				//Added May 2015 - create uniform URL aliases for use with bills across the site
+				$singleNode_nc->path['alias'] = 'bill/' . $bill_nc;
+				node_save($billNode_nc);
+				set_time_limit(180);
+			}
+			$billnumber_nc++;
+		}
+		else {
+			if($n > 1) {
+				$billExists_nc = FALSE;
+			}
+			$n++;
+			$billnumber_nc++;
+            $infomessage = 'Warning - There was a problem importing ' . $bill_nc . ' from the state website.';
+            drupal_set_message($infomessage,'warning');
+		}
+	}
+	unset($html_nc);
+	unset($a_nc);
+	$message = "Completed Incremental Bill Import for " . $billtype_nc . $billstart . " => " . $billtype_nc . $billend;
+	$type = "GA Lobby Cron";
+	watchdog($type, $message, $variables = array(), $severity = WATCHDOG_NOTICE, $link = NULL);
+}
+
+
+function galobby_watch_menu() {
+  $items = array();
+
+  $items['billimporter'] = array( //this creates a URL that will call this form at "billimporter"
+    'title' => 'Incremental Bill Importer Utility', //page title
+    'description' => 'Imports Georgia Legislature bills on demand',
+    'page callback' => 'drupal_get_form', //this is the function that will be called when the page is accessed.  for a form, use drupal_get_form
+    'page arguments' => array('galobby_watch_form'), //put the name of the form here
+    'access callback' => TRUE
+  );
+
+  $items['add-new-subscriber'] = array( //this creates a URL that will call this form at "add-new-subscriber"
+    'title' => 'Create New Subscriber', //page title
+    'description' => 'Creates new subscribers for contracts',
+    'page callback' => 'drupal_get_form', //this is the function that will be called when the page is accessed.  for a form, use drupal_get_form
+    'page arguments' => array('galobby_watch_new_subscriber_form'), //put the name of the form here
+    'access callback' => TRUE
+  );
+
+$items['force-permissions'] = array( //this creates a URL that will call this form at "force-permissions"
+    'title' => 'Copy Contract Services to Subscribers', //page title
+    'description' => 'Removes subscribers roles/services/permissions/subscriptions and replaces them with services from contract',
+    'page callback' => 'drupal_get_form', //this is the function that will be called when the page is accessed.  for a form, use drupal_get_form
+    'page arguments' => array('galobby_watch_force_permissions_form'), //put the name of the form here
+    'access callback' => TRUE
+  );
+
+$items['cw-team-edit'] = array( //this creates a URL that will call this 
+    'title' => 'Client Watch Team Collaboration', //page title
+    'description' => 'Creates a page with links to team member Client Watch bills and reports',
+    'page callback' => 'galobby_watch_cw_team_edit',
+	'access arguments' => array('access content'),
+	'access callback' => TRUE
+  );
+
+  return $items;
+}
+
+/*
+ * Function to build table for Client Watch team view/edit - added by LT on Feb 16 2017
+ */
+function galobby_watch_cw_team_edit() {
+	//load user and get contract data
+	global $user;
+	$usobj = user_load($user->uid);
+	$contrnid = $usobj->field_company['und'][0]['target_id'];
+	$contract = node_load($contrnid);
+	//set up so that users without CW Team service see error message
+	$cw_team = FALSE;
+	foreach($contract->field_services_subscribed[$contract->language] as $serv) {
+		if ($serv['value'] == 'cwteam') {
+			//F($serv);
+			$cw_team = TRUE;
+		}
+	} 
+	if ($cw_team == FALSE) {
+		return 'You are not subscribed to Client Watch Team services.  Please contact Georgia Lobby if you feel this is an error or to upgrade your contract to include this valuable service!';
+	}
+	//else, we continue to process page to show listing of Client Watch bills and reports from all subscribers on the contract
+	else {
+		//commented out as bill table view is not currently needed - Feb 23 2017, LT
+		//$html = '<div id="cw-team-bills"><h4>Team Client Watch Bills</h4><table id="cw-team-table"><tr><td>Owner</td><td>Client Watch Bill</td><td>Edit</td></tr>';
+		$html = '';
+		$html2 = '<table id="cw-client-team-table"><tr><td>Owner</td><td>Client/Issue</td><td>Edit</td></tr>';
+		$numsubs = $contract->field_number_subscribers[$contract->language][0]['value'];
+		$i = 0;
+		//get users' uids while the # iterations is less than num of subscribers on contract
+		while ($i < $numsubs) {
+			$teammembers[] = $contract->field_subscribers[$contract->language][$i]['target_id'];
+			$i++;
+		}
+		//load each user to get the appropriate variables like first and last name
+		foreach ($teammembers as $memuid) {
+			if ($memuid != NULL) {
+				$mem = user_load($memuid);
+				$userTerms = NULL;
+				$memname = '<tr><td>' . $mem->field_first_name['und'][0]['value'] . ' ' . $mem->field_last_name['und'][0]['value'] . '</td><td>';
+				//if there are CW bills for the team member, let's load them to get the data needed to build links for edit/view
+				$query = new EntityFieldQuery();
+				$entities = $query->entityCondition('entity_type', 'node')
+							->propertyCondition('type', 'client_watch')
+							->propertyCondition('uid', $memuid)
+							->execute();
+					if (!empty($entities['node'])) {
+  						$cwNodes = array_keys($entities['node']);
+						$cwBills = entity_load('node', $cwNodes);
+						foreach ($cwBills as $cw) {
+							//build bill lines - commented out as bill table view is not currently needed - Feb 23 2017, LT
+							//$html .= $memname . '<a href="node/' . $cw->nid . '">' . $cw->title . '</a></td><td><a href="node/' . $cw->nid . '/edit">Edit</a></td></tr>';
+							//get terms to prepare for report links
+							foreach ($cw->field_clients[$cw->language] as $t) {
+								$userTerms[] = $t['tid'];
+							}
+						}
+					}
+					//remove dups
+					if ($userTerms != NULL) {
+					$userTerms = array_unique($userTerms);
+					//load each term to get the name and set up for the correct URL
+					foreach ($userTerms as $te) {
+						$query = new EntityFieldQuery();
+						$entities = $query->entityCondition('entity_type', 'taxonomy_term')
+							->entityCondition('bundle', array('clients'))
+							->propertyCondition('tid', $te)
+							->execute();
+						if (!empty($entities['taxonomy_term'])) {
+  							$cwTerms = array_keys($entities['taxonomy_term']);
+							$cwClients = entity_load('taxonomy_term', $cwTerms);
+							foreach ($cwClients as $cli) {
+								//$html2 .= $memname . '<a href="client-watch-team-reporting/' . $cli->name . '/' . $memuid . '">' . $cli->name . '</a></td><td><a href="client-watch-team-reporting/' . $cli->name . '/' . $memuid . '">Edit</a></td></tr>';
+								$html2 .= $memname . '<a href="cw-team-reporting/' . $cli->tid . '/' . $memuid . '">' . $cli->name . '</a></td><td><a href="cw-team-reporting/' . $cli->tid . '/' . $memuid . '">Edit</a></td></tr>';
+							}
+						}
+					}}
+				unset($userTerms);
+			}
+		}
+		//$html .= '</table></div><div id="reports-by-term"><h4>Team Client Watch Reports by Client/Issue</h4>' . $html2 . '</table></div>';
+		$html .= '<div id="reports-by-term"><h4>Team Client Watch Reports by Client/Issue</h4>' . $html2 . '</table></div>';
+		return $html;
+	}
+}
+
+/* Incremental bill importer form */
+function galobby_watch_form($form, &$form_state) {
+
+$hb = 'HB' . variable_get('galobby_last_hb');
+$hb = "<a href='http://galobby.com/bill/$hb'>$hb</a>";
+$hr = 'HR' . variable_get('galobby_last_hr');
+$hr = "<a href='http://galobby.com/bill/$hr'>$hr</a>";
+$sb = 'SB' . variable_get('galobby_last_sb');
+$sb = "<a href='http://galobby.com/bill/$sb'>$sb</a>";
+$sr = 'SR' . variable_get('galobby_last_sr');
+$sr = "<a href='http://galobby.com/bill/$sr'>$sr</a>";
+$billcount = "<p>Bill endpoints from last night: $hb, $hr, $sb, $sr</p>";
+
+$hbdatabase = variable_get('galobby_last_database_hb');
+$hrdatabase = variable_get('galobby_last_database_hr');
+$sbdatabase = variable_get('galobby_last_database_sb');
+$srdatabase = variable_get('galobby_last_database_sr');
+$sysbillstatement = "<p>GA Lobby system actual bill endpoints: $hbdatabase, $hrdatabase, $sbdatabase, $srdatabase</p>";
+
+$hbstate = variable_get('state_last_database_hb');
+$hrstate = variable_get('state_last_database_hr');
+$sbstate = variable_get('state_last_database_sb');
+$srstate = variable_get('state_last_database_sr');
+$statebillstatement = "<p>State bill endpoints: $hbstate, $hrstate, $sbstate, $srstate</p>";
+  
+ $form['description'] = array(
+  '#markup' => '<p>This utility imports Georgia Legislature bills on demand for pre-files and out-of-sequence bills.</p>'
+);
+
+ $form['billcounters'] = array(
+  '#markup' => $billcount
+);
+
+$form['billcounters2'] = array(
+  '#markup' => $sysbillstatement
+);
+
+$form['billcounters3'] = array(
+  '#markup' => $statebillstatement
+);
+ 
+ $form['type_options'] = array(
+  '#type' => 'value',
+  '#value' => array('HB' => t('HB'),
+                    'HR' => t('HR'),
+                    'SB' => t('SB'),
+                    'SR' => t('SR')
+));
+
+$form['type'] = array(
+  '#title' => t('Bill Type'),
+  '#type' => 'select',
+  '#description' => "Select the bill type.",
+  '#options' => $form['type_options']['#value'],
+  '#required' => TRUE, //make this field required 
+);  
+  
+ $form['billstartnum'] = array(
+    '#type' => 'textfield', //you can find a list of available types in the form api
+    '#title' => 'What is the starting bill number?',
+    '#size' => 4,
+    '#maxlength' => 4,
+    '#required' => TRUE, //make this field required 
+  );
+  
+   $form['billendnum'] = array(
+    '#type' => 'textfield', //you can find a list of available types in the form api
+    '#title' => 'What is the ending bill number?',
+    '#size' => 4,
+    '#maxlength' => 4,
+    '#required' => TRUE, //make this field required 
+  );
+
+  $form['submit_button'] = array(
+    '#type' => 'submit',
+    '#value' => t('Click Here!'),
+  );
+  
+  return $form;
+}
+
+function galobby_watch_form_validate($form, &$form_state) {
+  if (!($form_state['values']['billstartnum'] > 0)){
+    form_set_error('billstartnum', t('Bill starting number must be a positive number.'));
+  }
+  if (!($form_state['values']['billendnum'] > 0)){
+    form_set_error('billendnum', t('Bill ending number must be a positive number.'));
+  }
+  elseif ($form_state['values']['billendnum'] < $form_state['values']['billstartnum']){
+    form_set_error('billendnum', t('Bill ending number must greater than or equal to starting number.'));
+  }
+}
+
+function galobby_watch_form_submit($form, &$form_state) {
+  $billtype = $form_state['values']['type'];
+  $billstart = $form_state['values']['billstartnum'];
+  $billend = $form_state['values']['billendnum'];
+  $infomessage = 'IMPORTANT - This is a FUNCTIONAL test of the processor and DOES currently import bills.';
+  drupal_set_message($infomessage,'warning');
+  $infomessage = 'BILL IMPORTER (BEGIN) - ' . $billtype . $billstart . ' => ' . $billtype . $billend . '.';
+  drupal_set_message($infomessage,'warning');
+  galobby_watch_incremental_updater($billtype, $billstart, $billend);
+  $infomessage = 'BILL IMPORTER (END) - ' . $billtype . $billstart . ' => ' . $billtype . $billend . '.';
+  drupal_set_message($infomessage,'warning');
+}
+
+//Next three functions - create new user from contracts form button - Sept 2016
+function galobby_watch_new_subscriber_form($form, &$form_state) {
+ $form['description'] = array(
+  '#markup' => '<p>Create a new subscriber for ' . $_GET['contract-title'] . '.</p>'
+);
+
+$form['nid'] = array(
+	'#title' => 'Contract ID',
+	'#type' => 'hidden',
+	'#value' => $_GET['contract-nid'],
+);
+  
+ $form['first'] = array(
+    '#type' => 'textfield', //you can find a list of available types in the form api
+    '#title' => 'First Name',
+    '#size' => 20,
+    '#maxlength' => 255,
+    '#required' => TRUE, //make this field required 
+  );
+  
+   $form['last'] = array(
+    '#type' => 'textfield', //you can find a list of available types in the form api
+    '#title' => 'Last Name',
+    '#size' => 20,
+    '#maxlength' => 255,
+    '#required' => TRUE, //make this field required 
+  );
+
+$form['email'] = array(
+    '#type' => 'textfield', //you can find a list of available types in the form api
+    '#title' => 'Email',
+    '#size' => 50,
+    '#maxlength' => 255,
+    '#required' => TRUE, //make this field required 
+  );
+$form['cell'] = array(
+    '#type' => 'textfield', //you can find a list of available types in the form api
+    '#title' => 'Phone Number',
+    '#size' => 13,
+    '#maxlength' => 13,
+    '#required' => TRUE, //make this field required 
+  );
+$form['notes'] = array(
+    '#type' => 'textfield', //you can find a list of available types in the form api
+    '#title' => 'Notes',
+    '#size' => 50,
+    '#maxlength' => 255,
+    '#required' => FALSE, //make this field required 
+  );
+
+  $form['submit_button'] = array(
+    '#type' => 'submit',
+    '#value' => t('Create Subscriber'),
+  );
+  
+  return $form;
+}
+
+function galobby_watch_new_subscriber_form_validate($form, &$form_state) {
+	//check that email is actually an email address
+	$mail = $form_state['values']['email'];
+	if (!valid_email_address($mail)) {
+  		form_set_error('[email]', t('This email address appears to be invalid.'));
+	}
+	//check anticipated username against existing usernames
+	$first = $form_state['values']['first'];
+  	$last = $form_state['values']['last'];
+	$username = $first . ' ' . $last;
+	if (user_load_by_name($username) != FALSE) {
+		form_set_error('', t('This username is already in use. Please modify subscriber name.'));
+	}
+	//check email against existing emails
+	if (user_load_by_mail($mail) != FALSE) {
+		form_set_error('[email]', t('This email address is already in use. Please add existing user using subscribers entry field on contract or enter a different email address.'));
+	}
+	//check is this really a phone number
+	$phone = $form_state['values']['cell'];
+	preg_match('/^(?:(?:\+?1\s*(?:[.-]\s*)?)?(?:\(\s*([2-9]1[02-9]|[2-9][02-8]1|[2-9][02-8][02-9])\s*\)|([2-9]1[02-9]|[2-9][02-8]1|[2-9][02-8][02-9]))\s*(?:[.-]\s*)?)?([2-9]1[02-9]|[2-9][02-9]1|[2-9][02-9]{2})\s*(?:[.-]\s*)?([0-9]{4})(?:\s*(?:#|x\.?|ext\.?|extension)\s*(\d+))?$/', $phone, $res);
+  		if ($res == NULL) {
+    		form_set_error('[cell]', t('This phone number appears to be invalid.'));
+  		}
+}
+
+function galobby_watch_new_subscriber_form_submit($form, &$form_state) {
+  $nid = $_GET['contract-nid'];
+	if ($nid != NULL) {
+			
+  $first = $form_state['values']['first'];
+  $last = $form_state['values']['last'];
+  $cell = $form_state['values']['cell'];
+  $email = $form_state['values']['email'];
+  $notes = $form_state['values']['notes'];
+
+ 	//load contract and get roles from contract
+	$contract = node_load($nid);
+	$n = 0;
+	
+	if ($contract->field_services_subscribed != NULL) {
+		while ($n < 5) {
+			if ($contract->field_services_subscribed['und'][$n]['value'] == 'board') {
+				$case = 'board';
+				$board = TRUE;
+				$n++;
+			}
+			if ($contract->field_services_subscribed['und'][$n]['value'] == 'govt') {
+				$case = 'govt';
+				$govt = TRUE;
+				$n++;
+			}
+			if ($contract->field_services_subscribed['und'][$n]['value'] == 'bill') {
+				$case = 'bill';
+				$n++;
+			}
+			if ($contract->field_services_subscribed['und'][$n]['value'] == 'code') {
+				$case = 'bundled';
+				$n++;
+			}
+			if ($contract->field_services_subscribed['und'][$n]['value'] == 'client') {
+				$case = 'bundled';
+				$n++;
+			}
+			if ($contract->field_services_subscribed['und'][$n]['value'] == 'cwteam') {
+				$case = 'cwteam';
+				$n = 6;
+			}
+			else {
+				$n = 6;
+			}
+		}
+	}
+	
+	if ($case == 'cwteam') {
+		$roles = array(
+			DRUPAL_AUTHENTICATED_RID => 'authenticated user',
+    		//10 => 'Bundled Subscription User',
+			14 => 'Client Watch Team User',
+			10 => 'Bundled Subscription User',
+		);
+	}
+	
+	if ($case == 'bundled') {
+		$roles = array(
+			DRUPAL_AUTHENTICATED_RID => 'authenticated user',
+    		10 => 'Bundled Subscription User',
+		);
+	}
+	
+	elseif ($case == 'bill') {
+		$roles = array(
+			DRUPAL_AUTHENTICATED_RID => 'authenticated user',
+    		9 => 'Bill Watch User',
+		);
+	}
+	
+	elseif ($case == 'board') {
+		$roles = array(
+			DRUPAL_AUTHENTICATED_RID => 'authenticated user',
+    		6 => 'Board Watch User',
+		);
+	}
+	
+	elseif ($case == 'govt' && $board) {
+		$roles = array(
+			DRUPAL_AUTHENTICATED_RID => 'authenticated user',
+    		6 => 'Board Watch User',
+			7 => 'Government Watch User',
+		);
+	}
+	
+	elseif ($case == 'govt' && !$board) {
+		$roles = array(
+			DRUPAL_AUTHENTICATED_RID => 'authenticated user',
+			7 => 'Government Watch User',
+		);
+	}
+	$pass = user_password(8);
+	//create the user object
+	$new_user = array(
+ 		'name' => $first . ' ' . $last,
+  		'mail' => $email,
+		'pass' => $pass,
+ 		'signature_format' => 'notice_html',
+		'status' => 1,
+		'language' => 'en',
+		'timezone' => 'America/New_York',
+		'init' => $email,
+		'access' => time(),
+		'login' => time(),
+		'roles' => $roles,
+  		'field_first_name' => array(
+    		'und' => array(
+      			0 => array(
+        			'value' => $first,
+      			),
+    		),
+  		),
+  		'field_last_name' => array(
+    		'und' => array(
+      			0 => array(
+        			'value' => $last,
+      			),
+    		),
+  		),
+		'field_cell_phone' => array(
+    		'und' => array(
+      			0 => array(
+        			'value' => $cell,
+      			),
+    		),
+  		),
+		'field_notes' => array(
+    		'und' => array(
+      			0 => array(
+        			'value' => $notes,
+      			),
+    		),
+  		),
+		'field_company' => array(
+    		'und' => array(
+      			0 => array(
+        			'target_id' => $nid,
+      			),
+    		),
+  		),
+	);
+
+$account = user_save('', $new_user);
+
+//send new user email
+ drupal_mail('galobby_watch', 'new_user', $account->mail, user_preferred_language($account), array(username => $account->name , password => $pass), 'office@galobby.com', TRUE);
+
+//attach user to the entity field on contract
+$numsubs = $contract->field_number_subscribers['und'][0]['value'];
+$numusers = 0;
+
+foreach ($contract->field_subscribers['und'] as $s) {
+	$numusers++;
+}
+
+if ($numusers < $numsubs) {
+	$contract->field_subscribers['und'][$numusers]['target_id'] = $account->uid;
+}
+
+node_save($contract);
+
+//success
+$message = 'The user with the username ' . $account->name . ' has been successfully added to the system and attached to contract for ' . $contract->title . '.';
+drupal_set_message($message,'notice');
+}
+
+else {
+	//failure
+	$message = 'This operation failed.  Please return to contract and try again.';
+	drupal_set_message($message,'warning');
+}
+
+//take user back to the originating contract	
+$path = 'node/' . $nid;
+$form_state['redirect'] = $path;
+
+}
+
+/* Force permissions from contract to subscribers form - removed Dec. 6th 2017 - LT*/
+/*function galobby_watch_force_permissions_form($form, &$form_state) {
+ $form['description'] = array(
+  '#markup' => '<p>This button will check the permissions and services of the subscribers listed in the contract ' . $_GET['contract-title'] . ' and will remove services not associated with the contract and replace them with the correct service subscriptions listed on the contract.</p>
+<p>This function CAN RESULT IN DATA DELETION/LOSS.  Please DO NOT run this function unless you are certain that you want to remove service permissions for these subscribers.</p>'
+);
+
+$form['nid'] = array(
+	'#title' => 'Contract ID',
+	'#type' => 'hidden',
+	'#value' => $_GET['force-permissions'],
+);
+
+  $form['submit_button'] = array(
+    '#type' => 'submit',
+    '#value' => t('I confirm that I want to replace subscriber permissions and subscriptions.'),
+  );
+  
+  return $form;
+}*/
+
+function galobby_watch_force_permissions_form_submit($form, &$form_state) {
+    $nid = $_GET['force-permissions'];
+	if ($nid != NULL) {
+ 		//load contract and get roles from contract
+		$contract = node_load($nid);
+		$n = 0;
+	
+		if ($contract->field_services_subscribed != NULL) {
+		while ($n < 5) {
+			if ($contract->field_services_subscribed['und'][$n]['value'] == 'board') {
+				$case = 'board';
+				$board = TRUE;
+				$n++;
+			}
+			if ($contract->field_services_subscribed['und'][$n]['value'] == 'govt') {
+				$case = 'govt';
+				$govt = TRUE;
+				$n++;
+			}
+			if ($contract->field_services_subscribed['und'][$n]['value'] == 'bill') {
+				$case = 'bill';
+				$n++;
+			}
+			if ($contract->field_services_subscribed['und'][$n]['value'] == 'code') {
+				$case = 'bundled';
+				$n++;
+			}
+			if ($contract->field_services_subscribed['und'][$n]['value'] == 'client') {
+				$case = 'bundled';
+				$n++;
+			}
+			if ($contract->field_services_subscribed['und'][$n]['value'] == 'cwteam') {
+				$case = 'cwteam';
+				$n = 6;
+			}
+			
+			else {
+				$n = 6;
+			}
+		}
+	}
+
+	//set up roles for users
+	if ($case == 'cwteam') {
+		$roles = array(2, 14);
+	}
+
+	if ($case == 'bundled') {
+		$roles = array(2, 10);
+	}
+	
+	elseif ($case == 'bill') {
+		$roles = array(2, 9);
+	}
+	
+	elseif ($case == 'board') {
+		$roles = array(2, 6);
+	}
+	
+	elseif ($case == 'govt' && $board) {
+		$roles = array(2, 6, 7);
+	}
+	
+	elseif ($case == 'govt' && !$board) {
+		$roles = array(2, 7);
+	}
+	
+	//get users from the entity field on contract
+	foreach ($contract->field_subscribers['und'] as $u) {
+		$user = user_load($u['target_id']);
+		$combined_sub = 0;
+		$matches = FALSE;
+		//check first for a match of roles... if there's a match, nothing else will happen
+		foreach($user->roles as $oldrole => $urole) {
+			$oldroles[] = $oldrole;
+			if ($urole == 'Client Watch Team User' && $case == 'cwteam') {
+				//do nothing - subs match
+				$matches = TRUE;
+			}
+			elseif ($urole == 'Bundled Subscription User' && $case == 'bundled') {
+				//do nothing - subs match
+				$matches = TRUE;
+			}
+			elseif ($urole == 'Bill Watch User' && $case == 'bill') {
+				//do nothing - subs match
+				$matches = TRUE;
+			}
+			elseif ($urole == 'Board Watch User' && $case == 'board') {
+				$combined_sub++;
+				//do nothing - subs match
+				$matches = TRUE;
+			}
+			if ($urole == 'Government Watch User' && $case == 'govt') {
+				if ($combined_sub && $board) {
+					$matches = TRUE;
+				}
+				if (!$combined_sub && !$board) {
+					$matches = TRUE;
+				}
+			}
+			//was there not a match?  if not, let's remove roles and then add the correct ones.
+			if (!$matches) {
+				galobby_watch_change_roles($user->uid, $roles, $oldroles);
+				//success
+				$message = 'The subscriber ' . $user->name . ' on ' . $contract->title . ' has been updated to reflect the services on the contract.';
+				drupal_set_message($message,'notice');
+			}
+			else {
+				//no changes made
+				$message = 'The subscriber ' . $user->name . ' on ' . $contract->title . ' already has the correct service permissions.';
+				drupal_set_message($message,'notice');
+			}
+		}
+	}	
+}
+//take user back to the originating contract	
+$path = 'node/' . $nid;
+$form_state['redirect'] = $path;
+
+}
+
+/** 
+Added to put full bill URL on bill display page without storing in database JD 2016-Jan-18 
+**/
+
+function galobby_watch_node_view($node, $view_mode, $langcode) {  
+  if ($node->type == 'bill_testing' && $view_mode == 'full') 
+  {
+    $bill_state_url = "<b>State Summary URL:</b><br />";
+    $billtitle = $node->title;
+    $billtype = substr($billtitle, 0, 2);
+    $billnumber = substr($billtitle, 2);
+    $bill_state_url_link = "<p><a href='http://www.legis.ga.gov/legislation/en-US/Display/20172018/$billtype/$billnumber' target='_blank'>http://www.legis.ga.gov/legislation/en-US/Display/20172018/$billtype/$billnumber</a></p>";
+    $node->content['bill_state_url_field'] = array(
+    '#theme' => 'field',
+    '#weight' => 6,
+    '#title' => 'State Bill Summary',
+    '#access' => TRUE,
+    '#label_display' => 'above',
+    '#view_mode' => 'full',
+    '#language' => 'und',
+    '#field_name' => 'field_bill_state_url_field',
+    '#field_type' => 'text',
+    '#field_translatable' => '0',
+    '#entity_type' => 'node',
+    '#bundle' => 'bill_testing',
+    '#object' => 'stdClass',
+    '#items' => array( array(
+      '#value' => $bill_state_url,
+      '#format' => 'full_html',
+      '#safe_value' => $bill_state_url_link,
+      )),
+    '#formatter' => 'text_default',
+    array(
+     '#markup' => $bill_state_url_link )
+      
+      );
+
+	$bill_ajc_url = "<b>Related News Stories:</b><br />";
+    $billtitle = $node->title;
+    $billtype = substr($billtitle, 0, 2);
+    $billnumber = substr($billtitle, 2);
+    $bill_ajc_url_link = "<p><a href='http://legislativenavigator.myajc.com/#bills/$billtype/$billnumber' target='_blank'>http://legislativenavigator.myajc.com/#bills/$billtype/$billnumber</a></p>";
+    $node->content['bill_ajc_url_field'] = array(
+    '#theme' => 'field',
+    '#weight' => 6,
+    '#title' => 'Related News Stories',
+    '#access' => TRUE,
+    '#label_display' => 'above',
+    '#view_mode' => 'full',
+    '#language' => 'und',
+    '#field_name' => 'field_bill_ajc_url_field',
+    '#field_type' => 'text',
+    '#field_translatable' => '0',
+    '#entity_type' => 'node',
+    '#bundle' => 'bill_testing',
+    '#object' => 'stdClass',
+    '#items' => array( array(
+      '#value' => $bill_ajc_url,
+      '#format' => 'full_html',
+      '#safe_value' => $bill_ajc_url_link,
+      )),
+    '#formatter' => 'text_default',
+    array(
+     '#markup' => $bill_ajc_url_link )
+      
+      ); 
+  }
+}
+
+/** 
+Added to modify search results for bills to add in the bill title - Joe 2/12/16
+**/
+function galobby_watch_preprocess_search_result(&$vars) {
+  $node = $vars['result']['node'];
+  if ( ($node->nid) && ($node->type == 'bill_testing') ) {
+    $vars['type'] = "bill_testing";
+    $vars['descrip'] = $node->field_billdescrip[$node->language][0]['value'];
+  }
+}
+
+/**
+ * hide_submit should only be on simplified notice screen... Lindsey 03/10/2016
+ */
+function galobby_watch_hide_submit_alter(&$hide_submit_settings) {
+  $current_path = current_path();
+  if (!($current_path === 'node/add/old-notice')) {
+    $hide_submit_settings['hide_submit']['hide_submit_status'] = FALSE;
+  }
+}
+
+/**
+  * hook_user_insert() to manually insert all BW and GW subscriptions to the database for newly entered users
+  */
+function galobby_watch_user_insert(&$edit, $account, $category) {
+	//if the account is of roles 10 or 9, add all BW and GW subscription terms, if 7 - GW only, if 6 - BW only
+	//BW taxonomy vid = 5, GW = 6
+	foreach($account->roles as $role) {
+		if($role == 10 || $role == 9) {
+			$bwtax = taxonomy_get_tree(5, $parent = 0, $max_depth = NULL, $load_entities = FALSE);
+			$gwtax = taxonomy_get_tree(6, $parent = 0, $max_depth = NULL, $load_entities = FALSE);
+			//let's add every term to the subscriptions table in db
+			foreach($bwtax as $bwterm) {
+				$table = 'subscriptions';
+				$record = new stdClass();
+				$record->module = 'node';
+				$record->field = 'tid';
+				$record->value = $bwterm->tid;
+				$record->recipient_uid = $account->uid;
+				$record->send_interval = 1;
+				$record->author_uid = -1;
+				$record->send_updates = 1;
+				$record->send_comments = 0;
+				drupal_write_record($table, $record);
+			}
+			//let's add every term to the subscriptions table in db
+			foreach($gwtax as $gwterm) {
+				$table = 'subscriptions';
+				$record = new stdClass();
+				$record->module = 'node';
+				$record->field = 'tid';
+				$record->value = $gwterm->tid;
+				$record->recipient_uid = $account->uid;
+				$record->send_interval = 1;
+				$record->author_uid = -1;
+				$record->send_updates = 1;
+				$record->send_comments = 0;
+				drupal_write_record($table, $record);
+			}
+		}
+		if($role == 7) {
+			$gwtax = taxonomy_get_tree(6, $parent = 0, $max_depth = NULL, $load_entities = FALSE);
+			//let's add every term to the subscriptions table in db
+			foreach($gwtax as $gwterm) {
+				$table = 'subscriptions';
+				$record = new stdClass();
+				$record->module = 'node';
+				$record->field = 'tid';
+				$record->value = $gwterm->tid;
+				$record->recipient_uid = $account->uid;
+				$record->send_interval = 1;
+				$record->author_uid = -1;
+				$record->send_updates = 1;
+				$record->send_comments = 0;
+				drupal_write_record($table, $record);
+			}
+		}
+		if($role == 6) {
+			$bwtax = taxonomy_get_tree(5, $parent = 0, $max_depth = NULL, $load_entities = FALSE);
+			//let's add every term to the subscriptions table in db
+			foreach($bwtax as $bwterm) {
+				$table = 'subscriptions';
+				$record = new stdClass();
+				$record->module = 'node';
+				$record->field = 'tid';
+				$record->value = $bwterm->tid;
+				$record->recipient_uid = $account->uid;
+				$record->send_interval = 1;
+				$record->author_uid = -1;
+				$record->send_updates = 1;
+				$record->send_comments = 0;
+				drupal_write_record($table, $record);
+			}
+		}
+	}
+}
+
+/* Nightly bill status email - LT 01/19/18
+ * Gets full listing of bills and statuses, reports system variable counters */
+function galobby_watch_status_email() {	
+
+	//get reported bill end point according to the nightly import job
+	$premessage = "<h3>Georgia Lobby - Nightly Import End Points</h3><br />";
+	$premessage .= "<p><b><a href='http://galobby.com/bill/hb" . variable_get('galobby_last_hb') . "'>HB" . variable_get('galobby_last_hb') . "</a></b>, ";
+    $premessage .= "<b><a href='http://galobby.com/bill/hr" . variable_get('galobby_last_hr') . "'>HR" . variable_get('galobby_last_hr') . "</a></b>, ";
+	$premessage .= "<b><a href='http://galobby.com/bill/sb" . variable_get('galobby_last_sb') . "'>SB" . variable_get('galobby_last_sb') . "</a></b>, ";
+	$premessage .= "<b><a href='http://galobby.com/bill/sr" . variable_get('galobby_last_sr') . "'>SR" . variable_get('galobby_last_sr') . "</a></b></p> <hr />";
+    $premessage .= "<h3>Georgia Lobby - Last Bills in Database</h3>";
+	
+	//set up main message
+	$message = "<hr /><h3>Georgia Lobby - Bill Database Status Report</h3><br /><h4>List of all current bills in the system</h4><br /><p>"; 
+	
+	//set up section on last found bills on legislative site
+	$stateends = "<hr /><h3>Georgia State Legislature - Last Bills</h3>";
+	
+	//set up bill errors section, bill summaries, and start parsing bills
+	$billtype = array('HB','HR','SB','SR');
+	$billerrors = "<hr /><h3>List of all bill errors</h3><div>If no bills listed below this line, then all bills pass the error check.</div>";
+	foreach ($billtype as $title) {
+     	$message .= $title . "- Bill Status<br /><hr /><br />";
+     	$result = db_query("SELECT n.nid FROM {node} n WHERE (SUBSTRING(n.title,1,2) = :title) AND n.type = :type ORDER BY LENGTH(n.title), n.title ASC", array(":title"=> $title, ":type"=> 'bill_testing'));
+     	$bills = $result->fetchAll();
+     	$i = 0;
+		foreach ($bills as $bill) {
+     		$i++;
+     		$billNode = node_load($bill->nid);
+    		 $billshorttitle = $billNode->title;
+     		$billLongTitle = $billNode->field_billdescrip[$billNode->language][0]['value'];
+     		$message .= "<b>$billLongTitle</b><br />";
+     		$message = $message . " <a href='http://galobby.com/bill/$billshorttitle'>Ga Lobby summary</a> - <a href='http://www.legis.ga.gov/legislation/en-US/Display/20172018/$title/$i'>State summary</a><br />";
+     		$message = $message . "Date created: " . date("l m/d/y g:i A",$billNode->created) . " - Date updated: " . date("l m/d/y g:i A",$billNode->changed) . "<br />";
+     			if ($billshorttitle == NULL or strlen($billshorttitle) == 1) $message = $message . " <span style='background-color:red'>Missing bill title</span> ";
+     			if ($billLongTitle == NULL or strlen($billLongTitle) == 1) $message = $message . " <span style='background-color:red'>Missing long title</span> ";
+     			if ($billNode->field_fulltext[$billNode->language][0]['value'] == NULL or strlen($billNode->field_fulltext[$billNode->language][0]['value']) == 1) { 
+					$message = $message . " <span style='background-color:red'>Missing bill text</span>";
+  					$billerrors = $billerrors . $billshorttitle . " - Missing bill text<br />";
+				}
+     			if ($billNode->field_descrip[$billNode->language][0]['value'] == NULL or strlen($billNode->field_descrip[$billNode->language][0]['value']) == 1) {
+  					$message = $message . " <span style='background-color:red'>Missing bill summary</span>";
+  					$billerrors = $billerrors . $billshorttitle . " - Missing bill summary<br />";
+				}
+     			if ($billNode->field_sponsor[$billNode->language][0]['value'] == NULL or strlen($billNode->field_sponsor[$billNode->language][0]['value']) == 1) {
+  					$message = $message . " <span style='background-color:red'>Missing bill sponsors</span>";
+  					$billerrors = $billerrors . $billshorttitle . " - Missing bill sponsors<br />";
+				}
+     			if ($billNode->field_committee[$billNode->language][0]['value'] == NULL or strlen($billNode->field_committee[$billNode->language][0]['value']) == 1) {  
+  					$message = $message . " <span style='background-color:red'>Missing committee(s)</span>";
+  					$billerrors = $billerrors . $billshorttitle . " - Missing bill committee(s)<br />";
+				}
+				if ($billNode->field_status[$billNode->language][0]['value'] == NULL or strlen($billNode->field_status[$billNode->language][0]['value']) == 1) {  
+  					$message = $message . " <span style='background-color:red'>Missing bill status</span>";
+  					$billerrors = $billerrors . $billshorttitle . " - Missing bill status<br />";
+				}
+				if ($billNode->field_status[$billNode->language][0]['format'] == NULL or strlen($billNode->field_status[$billNode->language][0]['format']) == 1) {  
+  					$message = $message . " <span style='background-color:red'>Missing bill status text format</span>";
+  					$billerrors = $billerrors . $billshorttitle . " - Missing bill status text format<br />";
+				}
+				if ($billNode->field_descrip[$billNode->language][0]['format'] == NULL or strlen($billNode->field_descrip[$billNode->language][0]['format']) == 1) {
+  					$message = $message . " <span style='background-color:red'>Missing bill summary text format</span>";
+  					$billerrors = $billerrors . $billshorttitle . " - Missing bill summary text format<br />";
+				}
+     			if ($billNode->field_sponsor[$billNode->language][0]['format'] == NULL or strlen($billNode->field_sponsor[$billNode->language][0]['format']) == 1) {
+  					$message = $message . " <span style='background-color:red'>Missing bill sponsors text format</span>";
+  					$billerrors = $billerrors . $billshorttitle . " - Missing bill sponsors text format<br />";
+				}
+     			if ($billNode->field_committee[$billNode->language][0]['format'] == NULL or strlen($billNode->field_committee[$billNode->language][0]['format']) == 1) {  
+  					$message = $message . " <span style='background-color:red'>Missing committee(s) text format</span>";
+  					$billerrors = $billerrors . $billshorttitle . " - Missing bill committee(s) text format<br />";
+				}
+     			if ($billNode->field_linkfulltext[$billNode->language][0]['value'] == NULL or strlen($billNode->field_linkfulltext[$billNode->language][0]['value']) == 1) { 
+  					$message = $message . " <span style='background-color:red'>Missing bill PDF</span>";
+  					$billerrors = $billerrors . $billshorttitle . " - Missing bill PDF<br />";
+				}
+				if ($billNode->field_billterms == NULL) {
+  					$message = $message . " <span style='background-color:red'>Missing bill watch term tags</span>";
+  					$billerrors = $billerrors . $billshorttitle . " - Missing bill watch term tags<br />";
+				}
+    			 $message = $message . "<br />";
+     		}
+			$premessage .= "<div>Actual endpoint for " . $title . " in GA Lobby: <b><a href='http://galobby.com/bill/" . $billshorttitle . "'>" . $billshorttitle . "</a></b></div>";
+			
+			//set variable for last bill in system
+			$lastdatavar = "<a href='http://galobby.com/bill/" . $billshorttitle . "'>" . $billshorttitle . "</a>";
+			
+			switch($title) {
+				case "HB":
+      				variable_set('galobby_last_database_hb', $lastdatavar);
+					variable_set('galobby_last_database_hb_title', $billshorttitle);
+      				break;
+    			case "HR":
+      				variable_set('galobby_last_database_hr', $lastdatavar);
+					variable_set('galobby_last_database_hr_title', $billshorttitle);
+      				break;
+    			case "SB":
+     				variable_set('galobby_last_database_sb', $lastdatavar);
+					variable_set('galobby_last_database_hr_title', $billshorttitle);
+      				break;
+    			case "SR":
+      				variable_set('galobby_last_database_sr', $lastdatavar);
+					variable_set('galobby_last_database_hr_title', $billshorttitle);
+     				 break;
+			}
+			
+			//run the counter logic on to find last bill on state site by using last bill found on GA Lobby system 
+			//currently the counter skip is set to 3 bills for non-consectutive bills
+			
+			//set an html scrapper to get bills on state site so we can find the endpoint
+			$html_nc = new simple_html_dom();
+
+			switch($title) {
+				case "HB":
+					$billnumber = variable_get('state_last_database_hb_number');
+      				break;
+    			case "HR":
+      				$billnumber = variable_get('state_last_database_hr_number');
+      				break;
+    			case "SB":
+     				$billnumber = variable_get('state_last_database_sb_number');
+      				break;
+    			case "SR":
+      				$billnumber = variable_get('state_last_database_sr_number');
+     				 break;
+			}
+    			$billtype = $title;
+			
+				//does bill exist on state site?  what's its number?
+				$billExists_nc = TRUE;
+				$billnumber_nc = $billnumber; 
+				$baseurl_nc = 'http://www.legis.ga.gov/legislation/en-US/Display/20172018/';
+			
+				//counter for non-consectutive bills on state legis, while bills exist on state site, add to the counter
+				$n = 0;
+				while ($billExists_nc)  {
+				
+					$url_nc = $baseurl_nc . $billtype . '/' . $billnumber_nc;
+					$html_nc->load_file($url_nc);
+					$longTitle_nc = $html_nc->find('div.ggah1');
+					//Make sure that bill with prefix and number exists on GA leg. site by seeing if there is a long descrip
+					if ($longTitle_nc[0] != NULL) {
+						//let's reset the counter for non-consectutive bills if we find one after a skipped one
+						$n = 0;			
+						$billnumber_nc++;
+					}
+					else {
+						if($n > 1) {
+							$billExists_nc = FALSE;
+						}
+					$n++;
+					$billnumber_nc++;
+					}
+				}
+			
+			unset($html_nc);
+			$billnumber_nc--;
+    		$billnumber_nc = $billnumber_nc - 3;
+			$billURL = $baseurl_nc . $billtype . '/' . $billnumber_nc;
+
+			
+			$stateends .= "<div>Last bill on state site for " . $title . ": <a href='" . $billURL . "'>" . $title . $billnumber_nc . "</a></div>";
+			
+			//set variable for last state site bill
+			$lastbill = "<a href='" . $billURL . "'>" . $title . $billnumber_nc . "</a>";
+			
+			switch($title) {
+				case "HB":
+      				variable_set('state_last_database_hb', $lastbill);
+					variable_set('state_last_database_hb_number', $billnumber_nc);
+      				break;
+    			case "HR":
+      				variable_set('state_last_database_hr', $lastbill);
+					variable_set('state_last_database_hr_number', $billnumber_nc);
+      				break;
+    			case "SB":
+     				variable_set('state_last_database_sb', $lastbill);
+					variable_set('state_last_database_sb_number', $billnumber_nc);
+      				break;
+    			case "SR":
+      				variable_set('state_last_database_sr', $lastbill);
+					variable_set('state_last_database_sr_number', $billnumber_nc);
+     				 break;
+			}
+
+		}
+	$message = $premessage . $stateends . $billerrors . $message;
+	$message .= "</p>";
+	drupal_mail('galobby_watch', 'billstatus', 'cfc.serverlogs@gmail.com', 'und', array(message => $message), 'system@galobby.com', TRUE);
+	$log = "Nightly status report has been generated for cfc.serverlogs@gmail.com at " .date("h:i:sa") . ".";
+    $type = "GA Lobby Status Report";
+    watchdog($type, $log, $variables = array(), $severity = WATCHDOG_INFO, $link = NULL);
+}
+
+/* Pre-create bills for nightly importer job... currently it barfs on creation of new bills - 01/26/2018 LT */
+function galobby_watch_precreate_bills() {
+	//set up bill creation based on endpoints and bill type
+	$billtype = array('HB','HR','SB','SR');
+	//$billtype = "HB";
+	foreach ($billtype as $btype) {
+		switch($btype) {
+			case "HB":
+      			$billnumber = variable_get('state_last_database_hb_number');
+      			break;
+    		case "HR":
+      			$billnumber = variable_get('state_last_database_hr_number');
+      			break;
+    		case "SB":
+     			$billnumber = variable_get('state_last_database_sb_number');
+      			break;
+    		case "SR":
+      			$billnumber = variable_get('state_last_database_sr_number');
+      			break;
+		}
+		//$n is consectutive counter... we want bills created up to the endpoint... 
+		//even skipped number bills that don't exist yet... but only up to the last bill on state site
+		//so, we're going to check to figure out where the endpoint on the state is based off of last bill in GA Lobby
+		$n = 0;
+		$lastbill = $billnumber;
+		//set an html scrapper to get bills on state site so we can find the endpoint
+		$html_nc = new simple_html_dom();
+		while ($n < 4) {
+			//let's see if the bill exists
+			$baseurl_nc = 'http://www.legis.ga.gov/legislation/en-US/Display/20172018/';
+			$url_nc = $baseurl_nc . $btype . '/' . $lastbill;
+			$html_nc->load_file($url_nc);
+			$longTitle_nc = $html_nc->find('div.ggah1');
+			//Make sure that bill with prefix and number exists on GA leg. site by seeing if there is a long descrip
+			if ($longTitle_nc[0] != NULL) {
+				//let's reset the counter for non-consectutive bills if we find one after a skipped one
+				$n = 0;			
+				$lastbill++;		
+			}
+			else {
+				$last = $lastbill - $n - 1;
+				$n++;
+				$lastbill++;
+			}
+		}
+		
+		for ($bn = $billnumber; $bn <= $last; $bn++) {
+			$billTitle = $btype . $bn;
+			$query = new EntityFieldQuery();
+			$entities = $query->entityCondition('entity_type', 'node')
+							->propertyCondition('type', 'bill_testing')
+							->propertyCondition('title', $billTitle)
+							->execute();
+			//bill node exists, skip creation
+			if (!empty($entities['node'])) {
+				//$billnumber++;
+			}
+			//node does NOT exist, let's create it
+			elseif (empty($entities['node'])) { 
+				$billTitle = $btype . $bn;
+				//Start to create new bill 
+				$bill = new stdClass(); 
+				$bill->type = 'bill_testing'; 
+				$bill->title = $billTitle; 
+				$bill->language = LANGUAGE_NONE; 
+				$bill->field_billdescrip[$bill->language][0]['value'] = $billTitle; 
+				$bill->field_billdescrip[$bill->language][0]['format'] = 'full_html'; 
+				//Create bill term and tag bill with it 
+				$billtrm = $billTitle; 
+				$term = galobby_watch_create_bill_term($billtrm); 
+				$bill->field_billterms[$bill->language][0]['tid'] = $term; 
+				//Clean up URL of PDF address to prepare for full text import 
+				$bill->field_fulltext[$bill->language][0]['format'] = 'plain_text'; 
+				$bill->field_linkfulltext[$bill->language][0]['format'] = 'full_html'; 
+				//Call data finding function for each piece of needed data 
+				$bill->field_descrip[$bill->language][0]['format'] = 'full_html'; 
+				$bill->field_descrip[$bill->language][0]['value'] = 'This bill has not yet posted to the Legislative Website.'; 
+				$bill->field_sponsor[$bill->language][0]['format'] = 'full_html'; 
+				$bill->field_status[$bill->language][0]['format'] = 'full_html'; 
+				$bill->field_committee[$bill->language][0]['format'] = 'full_html'; 
+				node_save($bill); 
+			}
+		} 
+		$log = "Pre-creation bills completed up to " . $btype . $bn . " at " . date("h:i:sa") . ".";
+        $type = "GA Lobby Pre-create Bills";
+        watchdog($type, $log, $variables = array(), $severity = WATCHDOG_INFO, $link = NULL);
+	}
+}
+

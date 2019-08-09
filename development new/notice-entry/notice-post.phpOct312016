@@ -1,0 +1,234 @@
+<?php
+
+echo '<META http-equiv="refresh" content="7;URL=http://galobby.com/notice-entry/notice-entry-background.php">';
+
+chdir("/home/galobby/public_html");
+define('DRUPAL_ROOT', getcwd());
+require_once './includes/bootstrap.inc';
+require_once './includes/file.inc';
+drupal_bootstrap(DRUPAL_BOOTSTRAP_FULL);
+
+global $user;
+
+if ($user->uid == 0) {
+	exit;
+}
+
+if (!user_has_role(3) && !user_has_role(11) && !user_has_role(12) ) {
+	exit;
+}
+
+//print_r($_POST);
+//echo "<br /><br />";
+//print_r($_FILES);
+//echo "<br /><br />";
+$source = $_FILES;
+
+//Start to create notice from Pamela's input
+//log the creation of the regular notice
+$log = "Regular notice: " . $_POST['title'] . " is starting to be saved from old notice entry screen at ". date("h:i:sa") . ".";
+$type = "GA Lobby Notice";
+watchdog($type, $log, $variables = array(), $severity = WATCHDOG_INFO, $link = NULL);
+$noticeNode = new stdClass();
+$noticeNode->title = $_POST['title'];
+$noticeNode->language = LANGUAGE_NONE;
+$noticeNode->uid = $user->uid;
+$noticeNode->body[$noticeNode->language][0]['value'] = $_POST['body']['und'][0]['value'];
+$noticeNode->body[$noticeNode->language][0]['format'] = 'full_html';
+
+if ($_POST['field_select_category']['und'] == 'boardnote') {
+	$i = 0;
+	$noticeNode->type = 'notice';
+	if ($_POST['field_boardcommittee'] != NULL) {
+		foreach ($_POST['field_boardcommittee']['und'] as $tid) {
+			$noticeNode->field_boardcommittee[$noticeNode->language][$i]['tid'] = $tid;
+			$i++;
+		}
+	}
+	else {
+		$noticeNode->field_boardcommittee[$noticeNode->language][0]['tid'] = 139;
+	}	
+}
+elseif($_POST['field_select_category']['und'] == 'govtnote') {
+	$i = 0;
+	$noticeNode->type = 'government_watch_notice';
+	if ($_POST['field_govtdept'] != NULL) {
+		foreach ($_POST['field_govtdept']['und'] as $tid) {
+			$noticeNode->field_govtdept[$noticeNode->language][$i]['tid'] = $tid;
+			$i++;
+		}
+	}
+	else {
+		$noticeNode->field_govtdept[$noticeNode->language]['tid'] = 144;
+	}
+}
+//let's move all the pieces into their appropriate (ie, matching) fields
+$noticeNode->field_location[$noticeNode->language][0]['value'] = $_POST['field_location']['und'][0]['value'];
+
+if ($_POST['field_use_date']['und'] == 1) {
+	$noticeNode->field_use_date[$noticeNode->language][0]['value'] = 0;
+}
+elseif ($_POST['field_use_date']['und'] == 0) {
+	$noticeNode->field_use_date[$noticeNode->language][0]['value'] = 1;
+}
+			
+//if "attach calendar" is deselected and the checkbox for start/end text is selected...
+if($_POST['field_use_start_notes']['und'] == 1 && $_POST['field_use_date']['und'] == 1) {
+	$noticeNode->field_datestart[$noticeNode->language][0]['value'] = $_POST['field_datestart']['und'][0]['value'];
+}
+else {
+	$noticeNode->field_datestart[$noticeNode->language][0]['value'] = NULL;
+}
+if($_POST['field_use_end_notes']['und'] == 1 && $_POST['field_use_date']['und'] == 1) {
+	$noticeNode->field_dateend[$noticeNode->language][0]['value'] = $_POST['field_dateendtext']['und'][0]['value'];
+	$noticeNode->field_dateendtext[$noticeNode->language][0]['value'] = $_POST['field_dateendtext']['und'][0]['value'];
+}
+else {
+	$noticeNode->field_dateend[$noticeNode->language][0]['value'] = NULL;
+	$noticeNode->field_dateendtext[$node->language][0]['value'] = NULL;
+}
+			
+//date fields one to one... date1 field filled and formatted below....  but first, lets see if it's DST...
+$DST = date('I');
+
+if($_POST['field_starts'] != NULL && $_POST['field_use_date']['und'] == 1) {
+	$sd = $_POST['field_starts']['und'][0]['value']['date'];
+	$date = date_create_from_format('D, M d, Y', $sd);
+	if ($DST) {
+		$date->add(new DateInterval('PT4H'));
+	}
+	else {
+		$date->add(new DateInterval('PT5H'));
+	}
+	$date = $date->format('Y-m-d H:i:s');
+	$noticeNode->field_starts[$noticeNode->language][0]['value'] = $date;
+	$noticeNode->field_starts[$noticeNode->language][0]['timezone'] = 'America/New_York';
+	$noticeNode->field_starts[$noticeNode->language][0]['timezone_db'] = 'America/New_York';
+	$noticeNode->field_starts[$noticeNode->language][0]['date_type'] = 'datetime';
+	
+	//print_r($date);
+	//echo "<br /><br />";
+}
+
+if($_POST['field_starts_time'] != NULL && $_POST['field_use_date']['und'] == 1) {
+	$st = $_POST['field_starts_time']['und'][0]['value']['time'];
+	$s = $sd . ' ' . $st;
+	$date = date_create_from_format('D, M d, Y h:ia', $s);
+	if ($DST) {
+		$date->add(new DateInterval('PT4H'));
+	}
+	else {
+		$date->add(new DateInterval('PT5H'));
+	}
+	$sdate = $date->format('Y-m-d H:i:s');
+	$noticeNode->field_starts_time[$noticeNode->language][0]['value'] = $sdate;
+	$noticeNode->field_starts_time[$noticeNode->language][0]['timezone'] = 'America/New_York';
+	$noticeNode->field_starts_time[$noticeNode->language][0]['timezone_db'] = 'America/New_York';
+	$noticeNode->field_starts_time[$noticeNode->language][0]['date_type'] = 'datetime';
+	
+	//print_r($sdate);
+	//echo "<br /><br />";
+}
+
+if($_POST['field_ends'] != NULL && $_POST['field_use_date']['und'] == 1) {
+	$ed = $_POST['field_ends']['und'][0]['value']['date'];
+	$date = date_create_from_format('D, M d, Y', $ed);
+	if ($DST) {
+		$date->add(new DateInterval('PT4H'));
+	}
+	else {
+		$date->add(new DateInterval('PT5H'));
+	}
+	$date = $date->format('Y-m-d H:i:s');
+	$noticeNode->field_ends[$noticeNode->language][0]['value'] = $date;
+	$noticeNode->field_ends[$noticeNode->language][0]['timezone'] = 'America/New_York';
+	$noticeNode->field_ends[$noticeNode->language][0]['timezone_db'] = 'America/New_York';
+	$noticeNode->field_ends[$noticeNode->language][0]['date_type'] = 'datetime';
+	
+	//print_r($date);
+	//echo "<br /><br />";
+}
+
+if($_POST['field_ends_time'] != NULL && $_POST['field_use_date']['und'] == 1) {
+	$et = $_POST['field_ends_time']['und'][0]['value']['time'];
+	$s = $ed . ' ' . $et;
+	$date = date_create_from_format('D, M d, Y h:ia', $s);
+	if ($DST) {
+		$date->add(new DateInterval('PT4H'));
+	}
+	else {
+		$date->add(new DateInterval('PT5H'));
+	}
+	$edate = $date->format('Y-m-d H:i:s');
+	$noticeNode->field_ends_time[$noticeNode->language][0]['value'] = $edate;
+	$noticeNode->field_ends_time[$noticeNode->language][0]['timezone'] = 'America/New_York';
+	$noticeNode->field_ends_time[$noticeNode->language][0]['timezone_db'] = 'America/New_York';
+	$noticeNode->field_ends_time[$noticeNode->language][0]['date_type'] = 'datetime';
+	
+	//print_r($edate);
+	//echo "<br /><br />";
+}
+			
+//date1 field on notices should only be filled in the case that ALL pieces (start date, start time, end date, end time) are available... otherwise, that field needs to be NULL
+if($_POST['field_use_start_date']['und'] == 1 && $_POST['field_use_start_time']['und'] == 1 && $_POST['field_use_end_date']['und'] == 1 && $_POST['field_use_end_time']['und'] == 1 && $_POST['field_use_date']['und'] == 1) {
+	$noticeNode->field_date1[$noticeNode->language][0]['value'] = $sdate;
+	$noticeNode->field_date1[$noticeNode->language][0]['value2'] = $edate;
+	$noticeNode->field_date1[$noticeNode->language][0]['timezone'] = 'America/New_York';
+	$noticeNode->field_date1[$noticeNode->language][0]['timezone_db'] = 'America/New_York';
+	$noticeNode->field_date1[$noticeNode->language][0]['date_type'] = 'datetime';
+}
+
+else {
+    $noticeNode->field_date1 = NULL;
+    $log = "Regular notice: " . $noticeNode->title . " setting date1 field to NULL at ". date("h:i:sa") . ".";
+    $type = "GA Lobby Notice";
+    watchdog($type, $log, $variables = array(), $severity = WATCHDOG_INFO, $link = NULL);
+}
+			
+//let's see about handling file uploads now....  
+//Set path, count files, upload to files directory one at a time, and attach to node one at a time
+$path = './sites/default/files/notice-entry-upload/';
+$numfiles = 0;
+foreach ($source['field_fileupload']['name'] as $s) {
+	if ($s != NULL) {
+		$numfiles++;
+	}
+}
+$loop = 0;
+while ($loop < $numfiles) {
+	$fname = $source['field_fileupload']['name'][$loop];
+	$ftmp = $source['field_fileupload']['tmp_name'][$loop];
+	$fpath = $path . $fname;
+	if (move_uploaded_file($ftmp, $fpath)) {
+		echo "File $fname has been uploaded.<br />";
+		$tmp_file = file_get_contents($fpath);
+		$tmp_file = file_save_data($tmp_file, 'public://' . $fname, FILE_EXISTS_RENAME);
+		$noticeNode->field_fileupload[$noticeNode->language][$loop]['fid'] = $tmp_file->fid;
+		$noticeNode->field_fileupload[$noticeNode->language][$loop]['filename'] = $tmp_file->filename;
+		$noticeNode->field_fileupload[$noticeNode->language][$loop]['filemime'] = $tmp_file->filemime;
+		$noticeNode->field_fileupload[$noticeNode->language][$loop]['uid'] = 4;
+		$noticeNode->field_fileupload[$noticeNode->language][$loop]['uri'] = $tmp_file->uri;
+		$noticeNode->field_fileupload[$noticeNode->language][$loop]['status'] = 1;
+		$noticeNode->field_fileupload[$noticeNode->language][$loop]['display'] = 1;
+	}
+	else {
+		echo "File upload of $fname failed.<br />";
+	}
+	$loop++;
+}
+
+//Log it!
+$log = "Regular notice: " . $noticeNode->title . " is starting the save process (post-insert, old notice entry) at ". date("h:i:sa") . ".";
+$type = "GA Lobby Notice";
+watchdog($type, $log, $variables = array(), $severity = WATCHDOG_INFO, $link = NULL);
+$node = node_save($noticeNode);
+$log = "Regular notice: " . $noticeNode->title . " has finished being saved from old notice entry at ". date("h:i:sa") . ".";
+$type = "GA Lobby Notice";
+watchdog($type, $log, $variables = array(), $severity = WATCHDOG_INFO, $link = NULL);
+
+//print_r($noticeNode);
+//dpm($node);
+
+echo "<br />Your notice $noticeNode->title has been created.<br />We will be re-directing you back to the notice entry screen momentarily...";
+
+?>

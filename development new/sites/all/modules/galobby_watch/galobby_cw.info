@@ -1,0 +1,7 @@
+name = GA Lobby Client Watch Reporting
+description = "Creates new interface to create and manage Client Watch reports."
+package = GA Lobby
+core = 7.x
+dependencies[] = subscriptions
+dependencies[] = galobby_watch
+files[] = galobby_cw.module

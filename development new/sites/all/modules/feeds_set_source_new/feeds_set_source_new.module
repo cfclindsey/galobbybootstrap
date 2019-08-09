@@ -1,0 +1,34 @@
+<?php
+
+/**
+ * Sets $source based on information typed into CCK fields before import.
+ */
+
+/**
+ * Implementation of hook_feeds_plugins().
+ */
+function feeds_set_source_new_feeds_plugins() {
+  $path = drupal_get_path('module', 'feeds_set_source_new');
+  $info = array();
+  $info['feeds_set_source_new'] = array(
+    'name' => t('Feeds Set Source - New URL'),
+    'description' => t('Fetches feeds based on base URL and CCK fields entered by end user.'),
+    'handler' => array(
+      'parent' => 'FeedsHTTPFetcher', // A plugin needs to derive either directly or indirectly from FeedsFetcher, FeedsParser or FeedsProcessor.
+      'class' => 'feeds_set_source_new',
+      'file' => 'feeds_set_source_new.inc',
+      'path' => drupal_get_path('module', 'feeds_set_source_new'),
+    ),
+  );
+  return $info;
+}
+
+/**
+ * Implements hook_enable().
+ *
+ * Clear Feed's plugin cache so that this plugin shows up.
+ */
+function feeds_set_source_new_enable() {
+  cache_clear_all('plugins:feeds:plugins', 'cache');
+}
+

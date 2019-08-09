@@ -1,0 +1,6 @@
+name = Feeds Set Source - New URL
+description = Sets fetch destination based on user entered info in CCK fields.
+package = Feeds
+dependencies[] = feeds
+core = 7.x
+files[] = feeds_set_source_new.inc

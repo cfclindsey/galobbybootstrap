@@ -1,0 +1,278 @@
+<?php
+
+/**
+ * @file
+ * Default theme implementation to display the basic html structure of a single
+ * Drupal page.
+ *
+ * Variables:
+ * - $css: An array of CSS files for the current page.
+ * - $language: (object) The language the site is being displayed in.
+ *   $language->language contains its textual representation.
+ *   $language->dir contains the language direction. It will either be 'ltr' or 'rtl'.
+ * - $rdf_namespaces: All the RDF namespace prefixes used in the HTML document.
+ * - $grddl_profile: A GRDDL profile allowing agents to extract the RDF data.
+ * - $head_title: A modified version of the page title, for use in the TITLE
+ *   tag.
+ * - $head_title_array: (array) An associative array containing the string parts
+ *   that were used to generate the $head_title variable, already prepared to be
+ *   output as TITLE tag. The key/value pairs may contain one or more of the
+ *   following, depending on conditions:
+ *   - title: The title of the current page, if any.
+ *   - name: The name of the site.
+ *   - slogan: The slogan of the site, if any, and if there is no title.
+ * - $head: Markup for the HEAD section (including meta tags, keyword tags, and
+ *   so on).
+ * - $styles: Style tags necessary to import all CSS files for the page.
+ * - $scripts: Script tags necessary to load the JavaScript files and settings
+ *   for the page.
+ * - $page_top: Initial markup from any modules that have altered the
+ *   page. This variable should always be output first, before all other dynamic
+ *   content.
+ * - $page: The rendered page content.
+ * - $page_bottom: Final closing markup from any modules that have altered the
+ *   page. This variable should always be output last, after all other dynamic
+ *   content.
+ * - $classes String of classes that can be used to style contextually through
+ *   CSS.
+ *
+ * @see template_preprocess()
+ * @see template_preprocess_html()
+ * @see template_process()
+ *
+ * @ingroup themeable
+ */
+?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML+RDFa 1.0//EN"
+  "http://www.w3.org/MarkUp/DTD/xhtml-rdfa-1.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="<?php print $language->language; ?>" version="XHTML+RDFa 1.0" dir="<?php print $language->dir; ?>"<?php print $rdf_namespaces; ?>>
+
+<head profile="<?php print $grddl_profile; ?>">
+  <?php print $head; ?>
+  <title><?php print $head_title; ?></title>
+  <?php print $styles; ?>
+  <?php print $scripts; ?>
+
+<!-- Global site tag (gtag.js) - Google Analytics -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=UA-83156933-35"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'UA-83156933-35');
+</script>
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>    
+<script src="https://code.jquery.com/ui/1.10.2/jquery-ui.js"></script>
+<script type="text/javascript" src="https://new.galobby.com/development/sites/all/themes/freedom/tablesorter-master/js/jquery.tablesorter.js"></script>
+
+<!-- Time Picker Jquery -->
+<link rel="stylesheet" href="https://new.galobby.com/development/sites/all/themes/freedom/timepicker/jquery.timepicker.css" />
+ <script src="https://new.galobby.com/development/sites/all/themes/freedom/timepicker/jquery.timepicker.min.js"></script>
+
+
+<script type="text/javascript">
+	//load as https
+	var loc = window.location.href+'';
+		if (loc.indexOf('http://')==0){
+    	window.location.href = loc.replace('http://','https://');
+	}
+	
+	$(window).load(function() {
+		//loading animation
+		$(".loader").fadeOut("slow");
+		
+		//select all buttons
+		$('#check-all-gw').click(function(){
+			$(".select-rowgw").attr('checked', true);
+			$(".select-rowgw").prop('checked', function (i, value) {
+    			return !value;
+			});
+  		});
+
+		$('#check-all-bw').click(function(){
+    		$(".select-rowbw").attr('checked', true);
+			$(".select-rowbw").prop('checked', function (i, value) {
+    			return !value;
+			});
+  		});
+
+		$('#check-all-codew').click(function(){
+			$(".select-rowcode").attr('checked', true);
+			$(".select-rowcode").prop('checked', function (i, value) {
+    			return !value;
+			});
+  		});
+
+		$('#check-all-billw').click(function(){
+    		$(".select-rowbill").attr('checked', true);
+			$(".select-rowbill").prop('checked', function (i, value) {
+    			return !value;
+			});
+  		});
+		
+		$('#cw-bill-table .form-checkbox').click(function(){
+			$(this).prop('checked', function (i, value) {
+    			return value;
+			});
+		});
+		
+		$('#cw-bill-table .select-all').click(function(){
+			$('#cw-bill-table .form-checkbox').prop('checked', function (i, value) {
+    			return !value;
+			});
+		});
+});
+
+</script>
+<style>
+	.noDisplay {
+		display: none !important;
+	}
+</style>
+<script>
+		$(function() {
+			if ($("body").hasClass("page-node-add-contracts")) {
+					$("#edit-field-subscribers-und-actions-ief-add-existing").prop('disabled', true);
+					$("#new-subs").addClass("disabled-ga-button");
+					$("#edit-field-subscribers-und-actions-ief-add-existing").addClass("disabled-ga-input");
+					$("#new-subs").click(function(e) {
+						e.preventDefault();
+					});
+			}
+		});		
+	</script>
+
+<script>
+$(function() {
+	//if not using dates, hide fields
+	if ($("#edit-field-use-date-und").prop("checked")) {
+		$(".start-date-wrapper").toggleClass('noDisplay');
+			$(".end-date-wrapper").toggleClass('noDisplay');
+			$(".field-name-field-datestart").toggleClass('noDisplay');
+			$(".field-name-field-dateend").toggleClass('noDisplay');
+			$(".field-name-field-starts").toggleClass('noDisplay');
+			$(".field-name-field-starts-time").toggleClass('noDisplay');
+			$(".field-name-field-ends").toggleClass('noDisplay');
+			$(".field-name-field-ends-time").toggleClass('noDisplay');
+			$(".field-name-field-dateendtext").toggleClass('noDisplay');
+	}
+	
+	//if not using dates, hide fields
+	$("#edit-field-use-date-und").click(function() {
+			$(".start-date-wrapper").toggleClass('noDisplay');
+			$(".end-date-wrapper").toggleClass('noDisplay');
+			$(".field-name-field-datestart").toggleClass('noDisplay');
+			$(".field-name-field-dateend").toggleClass('noDisplay');
+			$(".field-name-field-starts").toggleClass('noDisplay');
+			$(".field-name-field-starts-time").toggleClass('noDisplay');
+			$(".field-name-field-ends").toggleClass('noDisplay');
+			$(".field-name-field-ends-time").toggleClass('noDisplay');
+			$(".field-name-field-dateendtext").toggleClass('noDisplay');
+	});
+	
+	//add text to date field
+	$(".form-item-field-starts-und-0-value-date").prepend('<span class="inline">Start </span>');
+	$(".form-item-field-ends-und-0-value-date").prepend('<span class="inline">End </span>');
+	
+});
+</script>
+
+<script>
+//add color classes to client watch tables
+$(function() {
+	$(".views-field-field-importance:contains('Lowest')").addClass("blue");
+	$(".views-field-field-importance:contains('Low')").addClass("green");
+	$(".views-field-field-importance:contains('Medium')").addClass("yellow");
+	$(".views-field-field-importance:contains('High')").addClass("orange");
+	$(".views-field-field-importance:contains('Highest')").addClass("red");
+});
+
+//initialize tablesorter for client watch table
+$(function(){
+  $("#cw-bill-table").tablesorter({ /*sortList: [[0,0]]*/});
+});
+</script>
+
+<script>
+$(function() {
+	if ("div#edit-7") {
+		$("a.fieldset-title").removeAttribute("class");
+	}
+});
+</script>
+
+</head>
+<body class="<?php print $classes; ?>" <?php print $attributes;?>>
+	<div class="loader"><span>We need to load your subscriptions which may take 30 seconds to load. Do not hit the back button during this process.</span></div>
+	
+  <div id="skip-link">
+    <a href="#main-content" class="element-invisible element-focusable"><?php print t('Skip to main content'); ?></a>
+  </div>
+  <?php print $page_top; ?>
+  <?php print $page; ?>
+  <?php print $page_bottom; ?>
+
+
+<script>
+$("#edit-field-date1-und-0-show-todate").attr("disabled", true);
+$("#edit-field-date1-und-0-show-todate").attr("checked", true);
+</script>
+
+</body>
+
+<script type="text/javascript" >
+//set up time picker
+$('#edit-field-starts-time-und-0-value--popup-1').timepicker({ 'step': 15 });
+$('#edit-field-ends-time-und-0-value--popup-1').timepicker({ 'step': 15 });
+
+//update end date = start date when start changed from calendar popup
+$("#edit-field-starts-und-0-value-datepicker-popup-0").datepicker({
+  			onSelect: function(dateText) {
+				//$(dateText).datepicker("option", "dateFormat", "D, M d, yy");
+				$('#edit-field-starts-und-0-value-datepicker-popup-0').datepicker("option", "dateFormat", "D, M d, yy");
+				$('#edit-field-ends-und-0-value-datepicker-popup-0').datepicker("option", "dateFormat", "D, M d, yy");
+				$('#edit-field-ends-und-0-value-datepicker-popup-0').val(dateText);
+    			//alert(dateText);
+  			}
+		});	
+		
+//$('#edit-field-starts-und-0-value-datepicker-popup-0').datepicker("option", "dateFormat", "D, M d, yy");
+$('#edit-field-ends-und-0-value-datepicker-popup-0').datepicker("option", "dateFormat", "D, M d, yy");
+	
+//update end time = start time + 30 mins on start change
+$('#edit-field-starts-time-und-0-value--popup-1').change(function() {
+		var time = (this.value);
+		var min = time.match(/(\d+)/g)[1];
+		var hour = time.match(/(\d+)/g)[0];
+		var ampm = time.match(/([aApP][mM])/)[0];
+		var endmin = parseInt(min)+30;
+		var h = 0;
+		var z = '0';
+		if(parseInt(endmin) > 59) {
+			h = 1;
+			endmin = parseInt(endmin)-60;
+		}
+		var endhour = parseInt(hour)+h;
+		if(parseInt(endhour) > 11) {
+			endhour = parseInt(endhour)-12;
+			if(endhour == 0) {
+				endhour = 12;
+			}
+		}
+		if(endhour < 10) {
+			endhour = endhour.toString();
+			endhour = z.concat(endhour);
+		}
+		if(endmin < 10) {
+			endmin = endmin.toString();
+			endmin = z.concat(endmin);
+		}
+		var s = ":";
+		endhour = endhour.toString();
+		endmin = endmin.toString();
+		var endtime = endhour.concat(s).concat(endmin).concat(ampm);
+		$('#edit-field-ends-time-und-0-value--popup-1').val(endtime);
+	});	
+</script>
+
+</html>
