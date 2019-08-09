@@ -19,7 +19,7 @@
     <link href="https://new.galobby.com/development/sites/all/themes/galobbyelite/dist/css/style.min.css" rel="stylesheet">
     <!-- Dashboard 1 Page CSS -->
   <link href="https://new.galobby.com/development/sites/all/themes/galobbyelite/dist/css/pages/dashboard1.css" rel="stylesheet">
-    <!--link href="https://new.galobby.com/development/sites/all/themes/galobbyelite/assets/node_modules/bootstrap-table/dist/bootstrap-table.min.css" rel="stylesheet" type="text/css" />
+    <link href="https://new.galobby.com/development/sites/all/themes/galobbyelite/assets/node_modules/bootstrap-table/dist/bootstrap-table.min.css" rel="stylesheet" type="text/css" />
     <!-- Custom CSS -->
     <link href="https://new.galobby.com/development/sites/all/themes/galobbyelite/dist/css/custom.css" rel="stylesheet">
     <!-- HTML5 Shim and Respond.js IE8 support of HTML5 elements and media queries -->
@@ -1599,7 +1599,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.32/vfs_fonts.js"></script>
     <script src="https://cdn.datatables.net/buttons/1.5.1/js/buttons.html5.min.js"></script>
     <script src="https://cdn.datatables.net/buttons/1.5.1/js/buttons.print.min.js"></script>
-    
+
     <script>
         $(function () {
             $('#myTable').DataTable();
