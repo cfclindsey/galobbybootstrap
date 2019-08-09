@@ -10,7 +10,7 @@
 # Used:    http://example.com/robots.txt
 # Ignored: http://example.com/site/robots.txt
 #
-# For more information about the robots.txt standard, see:
+# For more information about the robots.txt standard, s
 # http://www.robotstxt.org/robotstxt.html
 
 User-agent: *

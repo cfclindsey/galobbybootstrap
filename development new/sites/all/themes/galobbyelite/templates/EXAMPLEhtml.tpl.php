@@ -63,8 +63,10 @@
   <?php /*print $styles;*/ ?>
 
   <!-- This page CSS -->
+
   <!-- chartist CSS -->
   <link href="https://new.galobby.com/development/sites/all/themes/assets/node_modules/morrisjs/morris.css" rel="stylesheet">
+  
   <!--Toaster Popup message CSS -->
   <link href="https://new.galobby.com/development/sites/all/themes/assets/node_modules/toast-master/css/jquery.toast.css" rel="stylesheet">
   <!-- Custom CSS -->
