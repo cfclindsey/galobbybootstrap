@@ -7,3 +7,6 @@ sites/*/private
 
 # Ignore sql files
 *.sql
+
+# Ignore test d8
+demod8
